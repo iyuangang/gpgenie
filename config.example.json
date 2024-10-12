@@ -1,0 +1,29 @@
+{
+  "database": {
+    "type": "postgres",
+    "host": "localhost",
+    "port": 5432,
+    "user": "user",
+    "password": "password",
+    "dbname": "dbname",
+    "maxOpenConns": 24,
+    "maxIdleConns": 12,
+    "connMaxLifetime": 300
+  },
+  "processing": {
+    "batchSize": 2000,
+    "maxConcurrentFiles": 12
+  },
+  "metrics": {
+    "port": 8080
+  },
+  "keyGeneration": {
+    "totalKeys": 10000000,
+    "numWorkers": 12,
+    "minScore": 200,
+    "maxLettersCount": 5,
+    "name": "Your Name",
+    "comment": "Your Comment",
+    "email": "Your Email"
+  }
+}

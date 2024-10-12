@@ -1,0 +1,25 @@
+{
+  "database": {
+    "type": "sqlite",
+    "dbname": "./gfscore.db",
+    "maxOpenConns": 1,
+    "maxIdleConns": 1,
+    "connMaxLifetime": 300
+  },
+  "processing": {
+    "batchSize": 1000,
+    "maxConcurrentFiles": 12
+  },
+  "metrics": {
+    "port": 8080
+  },
+  "keyGeneration": {
+    "totalKeys": 1000000,
+    "numWorkers": 20,
+    "minScore": 200,
+    "maxLettersCount": 5,
+    "name": "Your Name",
+    "comment": "Your Comment",
+    "email": "Your Email"
+  }
+}
