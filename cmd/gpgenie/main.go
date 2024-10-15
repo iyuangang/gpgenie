@@ -30,8 +30,14 @@ func main() {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
 	defer database.CloseDB(db)
+	
+	sqlDB, err := db.DB()
+	if err != nil {
+		log.Fatalf("Failed to get database instance: %v", err)
+	}
+	defer sqlDB.Close()
 
-	s := key.New(db, cfg)
+	s := key.New(sqlDB, cfg)
 
 	if *generateKeys {
 		err = s.GenerateKeys()
