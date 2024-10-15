@@ -5,6 +5,7 @@ go 1.22
 require (
 	github.com/ProtonMail/go-crypto v1.0.0
 	github.com/spf13/viper v1.19.0
+	go.uber.org/zap v1.21.0
 	gorm.io/driver/postgres v1.5.9
 	gorm.io/driver/sqlite v1.5.6
 	gorm.io/gorm v1.25.12

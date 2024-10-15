@@ -3,11 +3,11 @@ package key
 import (
 	"database/sql"
 	"fmt"
-	"log"
 	"os"
 	"strings"
 
 	"gpgenie/internal/config"
+	"gpgenie/internal/logger"
 )
 
 type Scorer struct {
@@ -53,7 +53,7 @@ func (s *Scorer) ensureTablesExist() {
         `)
     }
     if err != nil {
-        log.Fatalf("Failed to create gpg_ed25519_keys table: %v", err)
+        logger.Logger.Fatalf("Failed to create gpg_ed25519_keys table: %v", err)
     }
 }
 
@@ -121,6 +121,6 @@ func (s *Scorer) exportKeys(query string, limit int, outputFile string) error {
 		return fmt.Errorf("row iteration failed: %w", err)
 	}
 
-	log.Printf("Exported %d keys to %s", limit, outputFile)
+	logger.Logger.Info("Exported %d keys to %s", limit, outputFile)
 	return nil
 }

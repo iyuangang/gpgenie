@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -10,6 +9,7 @@ import (
 	"gpgenie/internal/config"
 	"gpgenie/internal/database"
 	"gpgenie/internal/key"
+	"gpgenie/internal/logger"
 )
 
 func main() {
@@ -20,20 +20,23 @@ func main() {
 	outputFile := flag.String("output", "exported_keys.csv", "Output file for exported keys")
 	flag.Parse()
 
+	logger.InitLogger()
+	defer logger.Logger.Sync()
+
 	cfg, err := config.Load(*configPath)
 	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+		logger.Logger.Fatalf("Failed to load config: %v", err)
 	}
 
 	db, err := database.Connect(cfg.Database)
 	if err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
+		logger.Logger.Fatalf("Failed to connect to database: %v", err)
 	}
 	defer database.CloseDB(db)
 	
 	sqlDB, err := db.DB()
 	if err != nil {
-		log.Fatalf("Failed to get database instance: %v", err)
+		logger.Logger.Fatalf("Failed to get database instance: %v", err)
 	}
 	defer sqlDB.Close()
 
@@ -42,16 +45,16 @@ func main() {
 	if *generateKeys {
 		err = s.GenerateKeys()
 		if err != nil {
-			log.Fatalf("Failed to generate keys: %v", err)
+			logger.Logger.Fatalf("Failed to generate keys: %v", err)
 		}
-		log.Println("Finished generating GPG keys")
+		logger.Logger.Info("Finished generating GPG keys")
 		return
 	}
 
 	if *exportTopKeys > 0 {
 		err = s.ExportTopKeys(*exportTopKeys, *outputFile)
 		if err != nil {
-			log.Fatalf("Failed to export top keys: %v", err)
+			logger.Logger.Fatalf("Failed to export top keys: %v", err)
 		}
 		return
 	}
@@ -59,19 +62,19 @@ func main() {
 	if *exportLowLetterCount > 0 {
 		err = s.ExportLowLetterCountKeys(*exportLowLetterCount, *outputFile)
 		if err != nil {
-			log.Fatalf("Failed to export low letter count keys: %v", err)
+			logger.Logger.Fatalf("Failed to export low letter count keys: %v", err)
 		}
 		return
 	}
 
-	log.Println("Processing completed successfully")
+	logger.Logger.Info("Processing completed successfully")
 
 	// Set up graceful shutdown
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
 	<-stop
-	log.Println("Shutting down gracefully...")
+	logger.Logger.Info("Shutting down gracefully...")
 	// Perform any cleanup here
 	database.CloseDB(db)
 }
