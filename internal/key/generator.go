@@ -16,7 +16,6 @@ type KeyInfo struct {
 	Fingerprint   string
 	PublicKey     string
 	PrivateKey    string
-	EncryptedPrivateKey string
 	RLScore       int
 	ILScore       int
 	DLScore       int

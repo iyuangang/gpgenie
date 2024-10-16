@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"gpgenie/internal/config"
@@ -122,6 +123,6 @@ func (s *Scorer) exportKeys(query string, limit int, outputFile string) error {
 		return fmt.Errorf("row iteration failed: %w", err)
 	}
 
-	logger.Logger.Info("Exported %d keys to %s", limit, outputFile)
+	logger.Logger.Info("Exported " + strconv.Itoa(limit) + " keys to " + outputFile)
 	return nil
 }

@@ -2,6 +2,7 @@ package key
 
 import (
 	"bytes"
+	"encoding/base64"
 	"errors"
 	"gpgenie/internal/config"
 	"os"
@@ -49,5 +50,7 @@ func (e *Encryptor) Encrypt(plaintext string) (string, error) {
 	if err != nil {
 			return "", err
 	}
-	return buf.String(), nil
+	encoded := base64.StdEncoding.EncodeToString(buf.Bytes())
+	return encoded, nil
+	//return buf.String(), nil
 }
