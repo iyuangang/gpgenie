@@ -15,9 +15,8 @@ import (
 func main() {
 	configPath := flag.String("config", "config/config.json", "Path to config file")
 	generateKeys := flag.Bool("generate-keys", false, "Generate GPG keys")
-	exportTopKeys := flag.Int("export-top", 0, "Export top N keys by score")
-	exportLowLetterCount := flag.Int("export-low-letter", 0, "Export N keys with lowest letter count")
-	outputFile := flag.String("output", "exported_keys.csv", "Output file for exported keys")
+	showTopKeys := flag.Int("show-top", 0, "Show top N keys by score")
+	showLowLetterCount := flag.Int("show-low-letter", 0, "Show N keys with lowest letter count")
 	exportByFingerprint := flag.String("export-by-fingerprint", "", "Export key by last 16 characters of fingerprint")
 	outputDir := flag.String("output-dir", ".", "Output directory for exported keys")
 	flag.Parse()
@@ -59,22 +58,21 @@ func main() {
 		if err != nil {
 			logger.Logger.Fatalf("Failed to generate keys: %v", err)
 		}
-		logger.Logger.Info("Finished generating GPG keys")
 		return
 	}
 
-	if *exportTopKeys > 0 {
-		err = s.ExportTopKeys(*exportTopKeys, *outputFile)
+	if *showTopKeys > 0 {
+		err = s.ShowTopKeys(*showTopKeys)
 		if err != nil {
-			logger.Logger.Fatalf("Failed to export top keys: %v", err)
+			logger.Logger.Fatalf("Failed to show top keys: %v", err)
 		}
 		return
 	}
 
-	if *exportLowLetterCount > 0 {
-		err = s.ExportLowLetterCountKeys(*exportLowLetterCount, *outputFile)
+	if *showLowLetterCount > 0 {
+		err = s.ShowLowLetterCountKeys(*showLowLetterCount)
 		if err != nil {
-			logger.Logger.Fatalf("Failed to export low letter count keys: %v", err)
+			logger.Logger.Fatalf("Failed to show keys with lowest letter count: %v", err)
 		}
 		return
 	}

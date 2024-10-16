@@ -128,6 +128,7 @@ func (s *Scorer) exportKeys(query string, limit int, outputFile string) error {
 	logger.Logger.Info("Exported " + strconv.Itoa(limit) + " keys to " + outputFile)
 	return nil
 }
+
 func (s *Scorer) ExportKeyByFingerprint(lastSixteen string, outputDir string) error {
 	query := `SELECT fingerprint, private_key FROM gpg_ed25519_keys WHERE fingerprint LIKE $1`
 	row := s.db.QueryRow(query, "%"+strings.ToLower(lastSixteen))
@@ -154,3 +155,46 @@ func (s *Scorer) ExportKeyByFingerprint(lastSixteen string, outputDir string) er
 	return nil
 }
 
+func (s *Scorer) ShowTopKeys(n int) error {
+	query := `SELECT upper(substr(fingerprint, 25, 16)) as fingerprint, score, letters_count 
+              FROM gpg_ed25519_keys 
+              ORDER BY score DESC, letters_count
+              LIMIT $1`
+	
+	return s.showKeys(query, n)
+}
+
+func (s *Scorer) ShowLowLetterCountKeys(n int) error {
+	query := `SELECT upper(substr(fingerprint, 25, 16)) as fingerprint, score, letters_count 
+              FROM gpg_ed25519_keys 
+              ORDER BY letters_count, score DESC 
+              LIMIT $1`
+	
+	return s.showKeys(query, n)
+}
+
+func (s *Scorer) showKeys(query string, n int) error {
+	rows, err := s.db.Query(query, n)
+	if err != nil {
+		return fmt.Errorf("failed to query keys: %w", err)
+	}
+	defer rows.Close()
+
+	fmt.Println("Fingerprint      Score  Letters Count")
+	fmt.Println("---------------- ------ -------------")
+
+	for rows.Next() {
+		var fingerprint string
+		var score, lettersCount int
+		if err := rows.Scan(&fingerprint, &score, &lettersCount); err != nil {
+			return fmt.Errorf("failed to scan row: %w", err)
+		}
+		fmt.Printf("%-16s %6d %13d\n", fingerprint, score, lettersCount)
+	}
+
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("error iterating over rows: %w", err)
+	}
+
+	return nil
+}
