@@ -16,6 +16,7 @@ type KeyInfo struct {
 	Fingerprint   string
 	PublicKey     string
 	PrivateKey    string
+	EncryptedPrivateKey string
 	RLScore       int
 	ILScore       int
 	DLScore       int
@@ -92,6 +93,16 @@ func (s *Scorer) generateKeyPair() (*KeyInfo, error) {
 	}
 	entity.SerializePrivate(privKeyArmor, nil)
 	privKeyArmor.Close()
+
+	// Encrypt the private key if encryptor is available
+	if s.encryptor != nil {
+		encryptedPrivateKey, err := s.encryptor.Encrypt(privKeyBuf.String())
+		if err != nil {
+			return nil, fmt.Errorf("failed to encrypt private key: %w", err)
+		}
+		privKeyBuf = new(strings.Builder)
+		privKeyBuf.WriteString(encryptedPrivateKey)
+	}
 
 	keyInfo := keyInfoPool.Get().(*KeyInfo)
 	*keyInfo = KeyInfo{

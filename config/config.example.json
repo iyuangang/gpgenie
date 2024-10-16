@@ -25,5 +25,8 @@
     "name": "Your Name",
     "comment": "Your Comment",
     "email": "Your Email"
+  },
+  "keyEncryption": {
+    "public_key_path": "path/to/user/public_key.asc"
   }
 }

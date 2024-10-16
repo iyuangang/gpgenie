@@ -13,7 +13,7 @@ import (
 )
 
 func main() {
-	configPath := flag.String("config", "config.json", "Path to config file")
+	configPath := flag.String("config", "config/config.json", "Path to config file")
 	generateKeys := flag.Bool("generate-keys", false, "Generate GPG keys")
 	exportTopKeys := flag.Int("export-top", 0, "Export top N keys by score")
 	exportLowLetterCount := flag.Int("export-low-letter", 0, "Export N keys with lowest letter count")
@@ -40,7 +40,17 @@ func main() {
 	}
 	defer sqlDB.Close()
 
-	s := key.New(sqlDB, cfg)
+	// Load encryption public key if provided
+	var encryptor *key.Encryptor
+	if cfg.KeyEncryption.PublicKeyPath != "" {
+		encryptor, err = key.NewEncryptor(&cfg.KeyEncryption)
+		if err != nil {
+			logger.Logger.Fatalf("Failed to load encryption public key: %v", err)
+		}
+		logger.Logger.Info("Encryption public key loaded successfully")
+	}
+
+	s := key.New(sqlDB, cfg, encryptor)
 
 	if *generateKeys {
 		err = s.GenerateKeys()

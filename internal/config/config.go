@@ -9,6 +9,7 @@ type Config struct {
 	Processing    ProcessingConfig
 	Metrics       MetricsConfig
 	KeyGeneration KeyGenerationConfig
+	KeyEncryption KeyEncryptionConfig `mapstructure:"keyEncryption"`
 }
 
 type DatabaseConfig struct {
@@ -40,6 +41,10 @@ type KeyGenerationConfig struct {
 	Name            string
 	Comment         string
 	Email           string
+}
+
+type KeyEncryptionConfig struct {
+	PublicKeyPath string `mapstructure:"public_key_path"`
 }
 
 func Load(configPath string) (*Config, error) {

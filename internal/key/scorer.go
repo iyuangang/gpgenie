@@ -13,10 +13,11 @@ import (
 type Scorer struct {
     db *sql.DB
     config *config.Config
+    encryptor *Encryptor
 }
 
-func New(db *sql.DB, cfg *config.Config) *Scorer {
-    s := &Scorer{db: db, config: cfg}
+func New(db *sql.DB, cfg *config.Config, encryptor *Encryptor) *Scorer {
+    s := &Scorer{db: db, config: cfg, encryptor: encryptor}
     s.ensureTablesExist()
     return s
 }
