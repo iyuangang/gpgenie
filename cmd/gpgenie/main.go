@@ -18,6 +18,8 @@ func main() {
 	exportTopKeys := flag.Int("export-top", 0, "Export top N keys by score")
 	exportLowLetterCount := flag.Int("export-low-letter", 0, "Export N keys with lowest letter count")
 	outputFile := flag.String("output", "exported_keys.csv", "Output file for exported keys")
+	exportByFingerprint := flag.String("export-by-fingerprint", "", "Export key by last 16 characters of fingerprint")
+	outputDir := flag.String("output-dir", ".", "Output directory for exported keys")
 	flag.Parse()
 
 	logger.InitLogger()
@@ -74,6 +76,15 @@ func main() {
 		if err != nil {
 			logger.Logger.Fatalf("Failed to export low letter count keys: %v", err)
 		}
+		return
+	}
+
+	if *exportByFingerprint != "" {
+		err = s.ExportKeyByFingerprint(*exportByFingerprint, *outputDir)
+		if err != nil {
+			logger.Logger.Fatalf("Failed to export key by fingerprint: %v", err)
+		}
+		logger.Logger.Infof("Successfully exported key to %s/%s.enc", *outputDir, *exportByFingerprint)
 		return
 	}
 

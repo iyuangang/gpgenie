@@ -2,8 +2,10 @@ package key
 
 import (
 	"database/sql"
+	"encoding/base64"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -12,51 +14,51 @@ import (
 )
 
 type Scorer struct {
-    db *sql.DB
-    config *config.Config
-    encryptor *Encryptor
+	db *sql.DB
+	config *config.Config
+	encryptor *Encryptor
 }
 
 func New(db *sql.DB, cfg *config.Config, encryptor *Encryptor) *Scorer {
-    s := &Scorer{db: db, config: cfg, encryptor: encryptor}
-    s.ensureTablesExist()
-    return s
+	s := &Scorer{db: db, config: cfg, encryptor: encryptor}
+	s.ensureTablesExist()
+	return s
 }
 
 func (s *Scorer) ensureTablesExist() {
-    var err error
-    if s.config.Database.Type == "postgres" {
-        _, err = s.db.Exec(`
-            CREATE TABLE IF NOT EXISTS gpg_ed25519_keys (
-                fingerprint VARCHAR(255) PRIMARY KEY,
-                public_key TEXT,
-                private_key TEXT,
-                rl_score INT,
-                il_score INT,
-                dl_score INT,
-                ml_score INT,
-                score INT,
-                letters_count INT
-            )
-        `)
-    } else { // SQLite
-        _, err = s.db.Exec(`
-            CREATE TABLE IF NOT EXISTS gpg_ed25519_keys (
-                fingerprint TEXT PRIMARY KEY,
-                public_key TEXT,
-                private_key TEXT,
-                rl_score INTEGER,
-                il_score INTEGER,
-                dl_score INTEGER,
-                ml_score INTEGER,
-                score INTEGER,
-                letters_count INTEGER
-            )
-        `)
-    }
-    if err != nil {
-        logger.Logger.Fatalf("Failed to create gpg_ed25519_keys table: %v", err)
-    }
+	var err error
+	if s.config.Database.Type == "postgres" {
+		_, err = s.db.Exec(`
+			CREATE TABLE IF NOT EXISTS gpg_ed25519_keys (
+				fingerprint VARCHAR(255) PRIMARY KEY,
+				public_key TEXT,
+				private_key TEXT,
+				rl_score INT,
+				il_score INT,
+				dl_score INT,
+				ml_score INT,
+				score INT,
+				letters_count INT
+			)
+		`)
+	} else { // SQLite
+		_, err = s.db.Exec(`
+			CREATE TABLE IF NOT EXISTS gpg_ed25519_keys (
+				fingerprint TEXT PRIMARY KEY,
+				public_key TEXT,
+				private_key TEXT,
+				rl_score INTEGER,
+				il_score INTEGER,
+				dl_score INTEGER,
+				ml_score INTEGER,
+				score INTEGER,
+				letters_count INTEGER
+			)
+		`)
+	}
+	if err != nil {
+		logger.Logger.Fatalf("Failed to create gpg_ed25519_keys table: %v", err)
+	}
 }
 
 func (s *Scorer) ExportTopKeys(limit int, outputFile string) error {
@@ -126,3 +128,29 @@ func (s *Scorer) exportKeys(query string, limit int, outputFile string) error {
 	logger.Logger.Info("Exported " + strconv.Itoa(limit) + " keys to " + outputFile)
 	return nil
 }
+func (s *Scorer) ExportKeyByFingerprint(lastSixteen string, outputDir string) error {
+	query := `SELECT fingerprint, private_key FROM gpg_ed25519_keys WHERE fingerprint LIKE $1`
+	row := s.db.QueryRow(query, "%"+strings.ToLower(lastSixteen))
+
+	var fingerprint, encodedPrivateKey string
+	err := row.Scan(&fingerprint, &encodedPrivateKey)
+	if err != nil {
+		return fmt.Errorf("failed to find key: %w", err)
+	}
+
+	// Base64 解码私钥
+	decodedPrivateKey, err := base64.StdEncoding.DecodeString(encodedPrivateKey)
+	if err != nil {
+		return fmt.Errorf("failed to decode private key: %w", err)
+	}
+
+	// 创建输出文件
+	outputFile := filepath.Join(outputDir, fingerprint+".enc")
+	err = os.WriteFile(outputFile, decodedPrivateKey, 0600)
+	if err != nil {
+		return fmt.Errorf("failed to write encrypted private key to file: %w", err)
+	}
+
+	return nil
+}
+
