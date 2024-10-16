@@ -19,7 +19,7 @@ type Scorer struct {
 	encryptor *Encryptor
 }
 
-func New(db *sql.DB, cfg *config.Config, encryptor *Encryptor) *Scorer {
+func NewScorer(db *sql.DB, cfg *config.Config, encryptor *Encryptor) *Scorer {
 	s := &Scorer{db: db, config: cfg, encryptor: encryptor}
 	s.ensureTablesExist()
 	return s
