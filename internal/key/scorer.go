@@ -21,11 +21,11 @@ type Scorer struct {
 
 func NewScorer(db *sql.DB, cfg *config.Config, encryptor *Encryptor) *Scorer {
 	s := &Scorer{db: db, config: cfg, encryptor: encryptor}
-	s.ensureTablesExist()
+	s.createTablesIfNotExist()
 	return s
 }
 
-func (s *Scorer) ensureTablesExist() {
+func (s *Scorer) createTablesIfNotExist() {
 	var err error
 	if s.config.Database.Type == "postgres" {
 		_, err = s.db.Exec(`
@@ -33,12 +33,12 @@ func (s *Scorer) ensureTablesExist() {
 				fingerprint VARCHAR(255) PRIMARY KEY,
 				public_key TEXT,
 				private_key TEXT,
-				rl_score INT,
-				il_score INT,
-				dl_score INT,
-				ml_score INT,
+				repeat_letter_score INT,
+				increasing_letter_score INT,
+				decreasing_letter_score INT,
+				magic_letter_score INT,
 				score INT,
-				letters_count INT
+				unique_letters_count INT
 			)
 		`)
 	} else { // SQLite
@@ -47,12 +47,12 @@ func (s *Scorer) ensureTablesExist() {
 				fingerprint TEXT PRIMARY KEY,
 				public_key TEXT,
 				private_key TEXT,
-				rl_score INTEGER,
-				il_score INTEGER,
-				dl_score INTEGER,
-				ml_score INTEGER,
+				repeat_letter_score INTEGER,
+				increasing_letter_score INTEGER,
+				decreasing_letter_score INTEGER,
+				magic_letter_score INTEGER,
 				score INTEGER,
-				letters_count INTEGER
+				unique_letters_count INTEGER
 			)
 		`)
 	}
@@ -63,10 +63,10 @@ func (s *Scorer) ensureTablesExist() {
 
 func (s *Scorer) ExportTopKeys(limit int, outputFile string) error {
 	query := `
-		SELECT upper(SUBSTR(fingerprint, 25, 16)), score, letters_count, public_key, private_key
+		SELECT upper(SUBSTR(fingerprint, 25, 16)), score, unique_letters_count, public_key, private_key
 		FROM gpg_ed25519_keys
 		WHERE 1=1
-		ORDER BY score DESC, letters_count
+		ORDER BY score DESC, unique_letters_count
 		LIMIT $1
 	`
 	return s.exportKeys(query, limit, outputFile)
@@ -74,10 +74,10 @@ func (s *Scorer) ExportTopKeys(limit int, outputFile string) error {
 
 func (s *Scorer) ExportLowLetterCountKeys(limit int, outputFile string) error {
 	query := `
-		SELECT upper(SUBSTR(fingerprint, 25, 16)), score, letters_count, public_key, private_key
+		SELECT upper(SUBSTR(fingerprint, 25, 16)), score, unique_letters_count, public_key, private_key
 		FROM gpg_ed25519_keys
-		WHERE letters_count < 5
-		ORDER BY letters_count, score DESC
+		WHERE unique_letters_count < 5
+		ORDER BY unique_letters_count, score DESC
 		LIMIT $1
 	`
 	return s.exportKeys(query, limit, outputFile)
@@ -146,7 +146,7 @@ func (s *Scorer) ExportKeyByFingerprint(lastSixteen string, outputDir string) er
 	}
 
 	// 创建输出文件
-	outputFile := filepath.Join(outputDir, fingerprint+".enc")
+	outputFile := filepath.Join(outputDir, fingerprint+".gpg")
 	err = os.WriteFile(outputFile, decodedPrivateKey, 0600)
 	if err != nil {
 		return fmt.Errorf("failed to write encrypted private key to file: %w", err)
@@ -156,18 +156,18 @@ func (s *Scorer) ExportKeyByFingerprint(lastSixteen string, outputDir string) er
 }
 
 func (s *Scorer) ShowTopKeys(n int) error {
-	query := `SELECT upper(substr(fingerprint, 25, 16)) as fingerprint, score, letters_count 
+	query := `SELECT upper(substr(fingerprint, 25, 16)) as fingerprint, score, unique_letters_count 
               FROM gpg_ed25519_keys 
-              ORDER BY score DESC, letters_count
+              ORDER BY score DESC, unique_letters_count
               LIMIT $1`
 	
 	return s.showKeys(query, n)
 }
 
 func (s *Scorer) ShowLowLetterCountKeys(n int) error {
-	query := `SELECT upper(substr(fingerprint, 25, 16)) as fingerprint, score, letters_count 
+	query := `SELECT upper(substr(fingerprint, 25, 16)) as fingerprint, score, unique_letters_count 
               FROM gpg_ed25519_keys 
-              ORDER BY letters_count, score DESC 
+              ORDER BY unique_letters_count, score DESC 
               LIMIT $1`
 	
 	return s.showKeys(query, n)

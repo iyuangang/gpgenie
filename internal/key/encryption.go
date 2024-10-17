@@ -36,7 +36,7 @@ func NewEncryptor(cfg *config.KeyEncryptionConfig) (*Encryptor, error) {
 	return &Encryptor{Entity: entities[0]}, nil
 }
 
-func (e *Encryptor) Encrypt(plaintext string) (string, error) {
+func (e *Encryptor) EncryptAndEncode(plaintext string) (string, error) {
 	var buf bytes.Buffer
 	w, err := openpgp.Encrypt(&buf, []*openpgp.Entity{e.Entity}, nil, nil, nil)
 	if err != nil {

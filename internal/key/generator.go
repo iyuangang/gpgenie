@@ -13,15 +13,15 @@ import (
 )
 
 type KeyInfo struct {
-	Fingerprint   string
-	PublicKey     string
-	PrivateKey    string
-	RLScore       int
-	ILScore       int
-	DLScore       int
-	MLScore       int
-	Score         int
-	LettersCount  int
+	Fingerprint           string
+	PublicKey             string
+	PrivateKey            string
+	RepeatLetterScore     int
+	IncreasingLetterScore int
+	DecreasingLetterScore int
+	MagicLetterScore      int
+	Score                 int
+	UniqueLettersCount    int
 }
 
 var keyInfoPool = sync.Pool{
@@ -41,7 +41,7 @@ func (s *Scorer) GenerateKeys() error {
 		go func(workerId int) {
 			defer wg.Done()
 			for j := 0; j < keysPerWorker; j++ {
-				if keyInfo, err := s.generateKeyPair(); err == nil {
+				if keyInfo, err := s.generateAndScoreKeyPair(); err == nil {
 					keyInfoChan <- keyInfo
 				}
 			}
@@ -53,10 +53,10 @@ func (s *Scorer) GenerateKeys() error {
 		close(keyInfoChan)
 	}()
 
-	return s.processKeyInfo(keyInfoChan)
+	return s.processAndInsertKeyInfo(keyInfoChan)
 }
 
-func (s *Scorer) generateKeyPair() (*KeyInfo, error) {
+func (s *Scorer) generateAndScoreKeyPair() (*KeyInfo, error) {
 	cfg := s.config.KeyGeneration
 	entity, err := openpgp.NewEntity(cfg.Name, cfg.Comment, cfg.Email, &packet.Config{
 		DefaultHash:   crypto.SHA256,
@@ -70,9 +70,9 @@ func (s *Scorer) generateKeyPair() (*KeyInfo, error) {
 
 	fingerprint := fmt.Sprintf("%x", entity.PrimaryKey.Fingerprint)
 	scores := calculateScores(fingerprint[len(fingerprint)-16:])
-	totalScore := scores.RLScore + scores.ILScore + scores.DLScore + scores.MLScore
+	totalScore := scores.RepeatLetterScore + scores.IncreasingLetterScore + scores.DecreasingLetterScore + scores.MagicLetterScore
 	
-	if totalScore <= cfg.MinScore && scores.LettersCount >= cfg.MaxLettersCount {
+	if totalScore <= cfg.MinScore && scores.UniqueLettersCount >= cfg.MaxLettersCount {
 		return nil, fmt.Errorf("key does not meet criteria")
 	}
 
@@ -95,7 +95,7 @@ func (s *Scorer) generateKeyPair() (*KeyInfo, error) {
 
 	// Encrypt the private key if encryptor is available
 	if s.encryptor != nil {
-		encryptedPrivateKey, err := s.encryptor.Encrypt(privKeyBuf.String())
+		encryptedPrivateKey, err := s.encryptor.EncryptAndEncode(privKeyBuf.String())
 		if err != nil {
 			return nil, fmt.Errorf("failed to encrypt private key: %w", err)
 		}
@@ -106,19 +106,19 @@ func (s *Scorer) generateKeyPair() (*KeyInfo, error) {
 	keyInfo := keyInfoPool.Get().(*KeyInfo)
 	*keyInfo = KeyInfo{
 		Fingerprint:  fingerprint,
-		PublicKey:    pubKeyBuf.String(),
-		PrivateKey:   privKeyBuf.String(),
-		RLScore:      scores.RLScore,
-		ILScore:      scores.ILScore,
-		DLScore:      scores.DLScore,
-		MLScore:      scores.MLScore,
-		Score:        totalScore,
-		LettersCount: scores.LettersCount,
+		PublicKey:             pubKeyBuf.String(),
+		PrivateKey:            privKeyBuf.String(),
+		RepeatLetterScore:     scores.RepeatLetterScore,
+		IncreasingLetterScore: scores.IncreasingLetterScore,
+		DecreasingLetterScore: scores.DecreasingLetterScore,
+		MagicLetterScore:      scores.MagicLetterScore,
+		Score:                 totalScore,
+		UniqueLettersCount:    scores.UniqueLettersCount,
 	}
 	return keyInfo, nil
 }
 
-func (s *Scorer) processKeyInfo(keyInfoChan <-chan *KeyInfo) error {
+func (s *Scorer) processAndInsertKeyInfo(keyInfoChan <-chan *KeyInfo) error {
 	batch := make([]*KeyInfo, 0, s.config.Processing.BatchSize)
 	for keyInfo := range keyInfoChan {
 		batch = append(batch, keyInfo)
@@ -146,7 +146,7 @@ func (s *Scorer) insertKeyBatch(batch []*KeyInfo) error {
 	defer tx.Rollback()
 
 	stmt, err := tx.Prepare(`
-		INSERT INTO gpg_ed25519_keys (fingerprint, public_key, private_key,rl_score, il_score, dl_score, ml_score, score, letters_count)
+		INSERT INTO gpg_ed25519_keys (fingerprint, public_key, private_key,repeat_letter_score, increasing_letter_score, decreasing_letter_score, magic_letter_score, score, unique_letters_count)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	`)
 	if err != nil {
@@ -159,12 +159,12 @@ func (s *Scorer) insertKeyBatch(batch []*KeyInfo) error {
 			keyInfo.Fingerprint,
 			keyInfo.PublicKey,
 			keyInfo.PrivateKey,
-			keyInfo.RLScore,
-			keyInfo.ILScore,
-			keyInfo.DLScore,
-			keyInfo.MLScore,
+			keyInfo.RepeatLetterScore,
+			keyInfo.IncreasingLetterScore,
+			keyInfo.DecreasingLetterScore,
+			keyInfo.MagicLetterScore,
 			keyInfo.Score,
-			keyInfo.LettersCount,
+			keyInfo.UniqueLettersCount,
 		)
 		if err != nil {
 			return err

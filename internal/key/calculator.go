@@ -6,27 +6,27 @@ import (
 )
 
 type Scores struct {
-    RLScore      int
-    ILScore      int
-    DLScore      int
-    MLScore      int
-    LettersCount int
+	RepeatLetterScore      int
+	IncreasingLetterScore  int
+	DecreasingLetterScore  int
+	MagicLetterScore       int
+	UniqueLettersCount     int
 }
 
 func calculateScores(line string) Scores {
 	line = strings.ToUpper(line) // Convert to uppercase for consistency
 
-	rlScore := calculateRepeatScore(line)
-	ilScore := calculateIncreasingScore(line)
-	dlScore := calculateDecreasingScore(line)
-	mlScore := calculateMLScore(line)
+	repeatScore := calculateRepeatScore(line)
+	increasingScore := calculateIncreasingScore(line)
+	decreasingScore := calculateDecreasingScore(line)
+	magicScore := calculateMagicLetterScore(line)
 
 	return Scores{
-		RLScore:      rlScore,
-		ILScore:      ilScore,
-		DLScore:      dlScore,
-		MLScore:      mlScore,
-		LettersCount: countUniqueChars(line),
+		RepeatLetterScore:      repeatScore,
+		IncreasingLetterScore:  increasingScore,
+		DecreasingLetterScore:  decreasingScore,
+		MagicLetterScore:       magicScore,
+		UniqueLettersCount:     countUniqueChars(line),
 	}
 }
 
@@ -85,7 +85,7 @@ func calculateSequenceScore(s string, increasing bool) int {
 	return maxScore
 }
 
-func calculateMLScore(s string) int {
+func calculateMagicLetterScore(s string) int {
 	if strings.Contains(s, "49") {
 		return -100
 	}

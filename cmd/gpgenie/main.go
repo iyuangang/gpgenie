@@ -21,7 +21,7 @@ func main() {
 }
 
 func run() error {
-	cfg, err := parseConfig()
+	cfg, err := loadConfig()
 	if err != nil {
 		return fmt.Errorf("failed to parse config: %w", err)
 	}
@@ -62,7 +62,7 @@ func run() error {
 	return nil
 }
 
-func parseConfig() (*config.Config, error) {
+func loadConfig() (*config.Config, error) {
 	configPath := flag.String("config", "config/config.json", "Path to config file")
 
 	cfg, err := config.Load(*configPath)
