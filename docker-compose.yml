@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: youruser
+      POSTGRES_PASSWORD: yourpassword
+      POSTGRES_DB: gpgenie_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+  gpgenie:
+    build: .
+    depends_on:
+      - db
+    volumes:
+      - ./config:/app/config
+      - ./export:/output
+    command: ["-config", "/app/config/config.json", "-generate-keys"]
+    environment:
+      - DATABASE_HOST=db
+      - DATABASE_PORT=5432
+      - DATABASE_USER=youruser
+      - DATABASE_PASSWORD=yourpassword
+      - DATABASE_DBNAME=gpgenie_db
+
+volumes:
+  db_data:

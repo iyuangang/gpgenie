@@ -24,8 +24,7 @@ type DatabaseConfig struct {
 }
 
 type ProcessingConfig struct {
-	BatchSize          int `mapstructure:"batch_size"`
-	MaxConcurrentFiles int `mapstructure:"max_concurrent_files"`
+	BatchSize       int `mapstructure:"batch_size"`
 }
 
 type KeyGenerationConfig struct {

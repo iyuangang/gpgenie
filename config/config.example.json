@@ -11,8 +11,7 @@
     "conn_max_lifetime": 300
   },
   "processing": {
-    "batch_size": 20,
-    "max_concurrent_files": 12
+    "batch_size": 20
   },
   "key_generation": {
     "total_keys": 10000000,
