@@ -30,7 +30,7 @@ func (s *Scorer) createTablesIfNotExist() {
 	if s.config.Database.Type == "postgres" {
 		_, err = s.db.Exec(`
       CREATE TABLE IF NOT EXISTS gpg_ed25519_keys (
-        fingerprint VARCHAR(255) PRIMARY KEY,
+        fingerprint VARCHAR(40) PRIMARY KEY,
         public_key TEXT,
         private_key TEXT,
         repeat_letter_score INT,

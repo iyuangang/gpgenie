@@ -14,9 +14,6 @@
     "batchSize": 2000,
     "maxConcurrentFiles": 12
   },
-  "metrics": {
-    "port": 8080
-  },
   "keyGeneration": {
     "totalKeys": 10000000,
     "numWorkers": 12,

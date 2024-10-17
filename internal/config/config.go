@@ -7,7 +7,6 @@ import (
 type Config struct {
 	Database      DatabaseConfig
 	Processing    ProcessingConfig
-	Metrics       MetricsConfig
 	KeyGeneration KeyGenerationConfig
 	KeyEncryption KeyEncryptionConfig
 }
@@ -27,10 +26,6 @@ type DatabaseConfig struct {
 type ProcessingConfig struct {
 	BatchSize          int
 	MaxConcurrentFiles int
-}
-
-type MetricsConfig struct {
-	Port int
 }
 
 type KeyGenerationConfig struct {

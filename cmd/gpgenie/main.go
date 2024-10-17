@@ -79,7 +79,6 @@ func handleCommands(scorer *key.Scorer) error {
 	exportByFingerprint := flag.String("export-by-fingerprint", "", "Export key by last 16 characters of fingerprint")
 	outputDir := flag.String("output-dir", ".", "Output directory for exported keys")
 
-	// 在这里解析标志
 	flag.Parse()
 
 	switch {
