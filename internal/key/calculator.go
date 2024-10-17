@@ -13,7 +13,7 @@ type Scores struct {
 	UniqueLettersCount    int
 }
 
-func calculateScores(line string) Scores {
+func CalculateScores(line string) Scores {
 	line = strings.ToUpper(line) // Convert to uppercase for consistency
 
 	repeatScore := calculateRepeatScore(line)

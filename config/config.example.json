@@ -6,24 +6,24 @@
     "user": "user",
     "password": "password",
     "dbname": "dbname",
-    "maxOpenConns": 24,
-    "maxIdleConns": 12,
-    "connMaxLifetime": 300
+    "max_open_conns": 24,
+    "max_idle_conns": 12,
+    "conn_max_lifetime": 300
   },
   "processing": {
-    "batchSize": 2000,
-    "maxConcurrentFiles": 12
+    "batch_size": 20,
+    "max_concurrent_files": 12
   },
-  "keyGeneration": {
-    "totalKeys": 10000000,
-    "numWorkers": 12,
-    "minScore": 200,
-    "maxLettersCount": 5,
+  "key_generation": {
+    "total_keys": 10000000,
+    "num_workers": 12,
+    "min_score": 200,
+    "max_letters_count": 5,
     "name": "Your Name",
     "comment": "Your Comment",
     "email": "Your Email"
   },
-  "keyEncryption": {
+  "key_encryption": {
     "public_key_path": "path/to/user/public_key.asc"
   }
 }

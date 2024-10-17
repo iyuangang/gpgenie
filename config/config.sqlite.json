@@ -1,25 +1,25 @@
 {
   "database": {
     "type": "sqlite",
-    "dbname": "./gfscore.db",
-    "maxOpenConns": 1,
-    "maxIdleConns": 1,
-    "connMaxLifetime": 300
+    "dbname": "./keys.db",
+    "max_open_conns": 1,
+    "max_idle_conns": 1,
+    "conn_max_lifetime": 300
   },
   "processing": {
-    "batchSize": 1000,
-    "maxConcurrentFiles": 12
+    "batch_size": 1000,
+    "max_concurrent_files": 12
   },
-  "keyGeneration": {
-    "totalKeys": 1000000,
-    "numWorkers": 20,
-    "minScore": 200,
-    "maxLettersCount": 5,
+  "key_generation": {
+    "total_keys": 1000000,
+    "num_workers": 20,
+    "min_score": 200,
+    "max_letters_count": 5,
     "name": "Your Name",
     "comment": "Your Comment",
     "email": "Your Email"
   },
-  "keyEncryption": {
+  "key_encryption": {
     "public_key_path": "path/to/user/public_key.asc"
   }
 }

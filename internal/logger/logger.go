@@ -13,6 +13,11 @@ func InitLogger() {
 	if err != nil {
 		panic("Failed to initialize logger: " + err.Error())
 	}
-	defer zapLogger.Sync()
 	Logger = zapLogger.Sugar()
+}
+
+func SyncLogger() {
+	if Logger != nil {
+		_ = Logger.Sync()
+	}
 }

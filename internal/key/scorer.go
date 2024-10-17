@@ -1,199 +1,300 @@
 package key
 
 import (
-	"database/sql"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
+	"sync"
 
 	"gpgenie/internal/config"
 	"gpgenie/internal/logger"
+
+	"gorm.io/gorm"
 )
 
 type Scorer struct {
-	db        *sql.DB
+	db        *gorm.DB
 	config    *config.Config
 	encryptor *Encryptor
 }
 
-func NewScorer(db *sql.DB, cfg *config.Config, encryptor *Encryptor) *Scorer {
-	s := &Scorer{db: db, config: cfg, encryptor: encryptor}
-	s.createTablesIfNotExist()
-	return s
-}
-
-func (s *Scorer) createTablesIfNotExist() {
+// NewScorer initializes a new Scorer instance
+func NewScorer(db *gorm.DB, cfg *config.Config) (*Scorer, error) {
+	var encryptor *Encryptor
 	var err error
-	if s.config.Database.Type == "postgres" {
-		_, err = s.db.Exec(`
-      CREATE TABLE IF NOT EXISTS gpg_ed25519_keys (
-        fingerprint VARCHAR(40) PRIMARY KEY,
-        public_key TEXT,
-        private_key TEXT,
-        repeat_letter_score INT,
-        increasing_letter_score INT,
-        decreasing_letter_score INT,
-        magic_letter_score INT,
-        score INT,
-        unique_letters_count INT
-      )
-    `)
-	} else { // SQLite
-		_, err = s.db.Exec(`
-      CREATE TABLE IF NOT EXISTS gpg_ed25519_keys (
-        fingerprint TEXT PRIMARY KEY,
-        public_key TEXT,
-        private_key TEXT,
-        repeat_letter_score INTEGER,
-        increasing_letter_score INTEGER,
-        decreasing_letter_score INTEGER,
-        magic_letter_score INTEGER,
-        score INTEGER,
-        unique_letters_count INTEGER
-      )
-    `)
+	if cfg.KeyEncryption.PublicKeyPath != "" {
+		encryptor, err = NewEncryptor(&cfg.KeyEncryption)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load encryption public key: %w", err)
+		}
+		logger.Logger.Info("Encryption public key loaded successfully")
 	}
+
+	s := &Scorer{
+		db:        db,
+		config:    cfg,
+		encryptor: encryptor,
+	}
+
+	if err := s.createTablesIfNotExist(); err != nil {
+		return nil, fmt.Errorf("failed to create tables: %w", err)
+	}
+
+	return s, nil
+}
+
+// createTablesIfNotExist creates the necessary database tables
+func (s *Scorer) createTablesIfNotExist() error {
+	if err := s.db.AutoMigrate(&KeyInfo{}); err != nil {
+		logger.Logger.Fatalf("Failed to auto-migrate gpg_ed25519_keys table: %v", err)
+		return err
+	}
+	return nil
+}
+
+// GenerateKeys handles the generation and scoring of keys concurrently
+func (s *Scorer) GenerateKeys() error {
+	cfg := s.config.KeyGeneration
+	var wg sync.WaitGroup
+	keysPerWorker := cfg.TotalKeys / cfg.NumWorkers
+	keyInfoChan := make(chan *KeyInfo, cfg.TotalKeys)
+	errorChan := make(chan error, s.config.KeyGeneration.NumWorkers)
+
+	for i := 0; i < cfg.NumWorkers; i++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			for j := 0; j < keysPerWorker; j++ {
+				keyInfo, err := s.generateAndScoreKeyPair()
+				if err == nil {
+					keyInfoChan <- keyInfo
+				}
+			}
+		}(i)
+	}
+
+	go func() {
+		wg.Wait()
+		close(keyInfoChan)
+		close(errorChan)
+	}()
+
+	// Insert keys into the database
+	if err := s.processAndInsertKeyInfo(keyInfoChan); err != nil {
+		return err
+	}
+
+	// Check for any errors during key generation
+	for err := range errorChan {
+		if err != nil {
+			logger.Logger.Warnf("Encountered error during key generation: %v", err)
+		}
+	}
+
+	logger.Logger.Info("Key generation process completed.")
+	return nil
+}
+
+// generateAndScoreKeyPair generates a single key pair and calculates its scores
+func (s *Scorer) generateAndScoreKeyPair() (*KeyInfo, error) {
+	cfg := s.config.KeyGeneration
+	entity, err := NewEntity(&cfg)
 	if err != nil {
-		logger.Logger.Fatalf("Failed to create gpg_ed25519_keys table: %v", err)
+		return nil, fmt.Errorf("failed to create entity: %w", err)
 	}
-}
 
-func (s *Scorer) ExportTopKeys(limit int, outputFile string) error {
-	query := `
-    SELECT upper(SUBSTR(fingerprint, 25, 16)), score, unique_letters_count, public_key, private_key
-    FROM gpg_ed25519_keys
-    WHERE 1=1
-    ORDER BY score DESC, unique_letters_count
-    LIMIT $1
-  `
-	return s.exportKeys(query, limit, outputFile)
-}
+	fingerprint := fmt.Sprintf("%x", entity.PrimaryKey.Fingerprint)
+	scores := CalculateScores(fingerprint[len(fingerprint)-16:])
+	totalScore := scores.RepeatLetterScore + scores.IncreasingLetterScore + scores.DecreasingLetterScore + scores.MagicLetterScore
 
-func (s *Scorer) ExportLowLetterCountKeys(limit int, outputFile string) error {
-	query := `
-    SELECT upper(SUBSTR(fingerprint, 25, 16)), score, unique_letters_count, public_key, private_key
-    FROM gpg_ed25519_keys
-    WHERE unique_letters_count < 5
-    ORDER BY unique_letters_count, score DESC
-    LIMIT $1
-  `
-	return s.exportKeys(query, limit, outputFile)
-}
+	if totalScore <= cfg.MinScore && scores.UniqueLettersCount >= cfg.MaxLettersCount {
+		return nil, errors.New("key does not meet criteria")
+	}
 
-func (s *Scorer) exportKeys(query string, limit int, outputFile string) error {
-	rows, err := s.db.Query(query, limit)
+	pubKeyStr, privKeyStr, err := SerializeKeys(entity, s.encryptor)
 	if err != nil {
-		return fmt.Errorf("query failed: %w", err)
+		return nil, err
 	}
-	defer rows.Close()
 
-	file, err := os.Create(outputFile)
+	keyInfo := &KeyInfo{
+		Fingerprint:           fingerprint,
+		PublicKey:             pubKeyStr,
+		PrivateKey:            privKeyStr,
+		RepeatLetterScore:     scores.RepeatLetterScore,
+		IncreasingLetterScore: scores.IncreasingLetterScore,
+		DecreasingLetterScore: scores.DecreasingLetterScore,
+		MagicLetterScore:      scores.MagicLetterScore,
+		Score:                 totalScore,
+		UniqueLettersCount:    scores.UniqueLettersCount,
+	}
+	return keyInfo, nil
+}
+
+// processAndInsertKeyInfo processes the channel of KeyInfo and inserts them into the database
+func (s *Scorer) processAndInsertKeyInfo(keyInfoChan <-chan *KeyInfo) error {
+	batch := make([]*KeyInfo, 0, s.config.Processing.BatchSize)
+	for keyInfo := range keyInfoChan {
+		batch = append(batch, keyInfo)
+		if len(batch) >= s.config.Processing.BatchSize {
+			if err := s.insertKeyBatch(batch); err != nil {
+				return err
+			}
+			batch = batch[:0]
+		}
+	}
+	if len(batch) > 0 {
+		return s.insertKeyBatch(batch)
+	}
+	return nil
+}
+
+// insertKeyBatch inserts a batch of KeyInfo into the database
+func (s *Scorer) insertKeyBatch(batch []*KeyInfo) error {
+	if err := s.db.Transaction(func(tx *gorm.DB) error {
+		return tx.Create(&batch).Error
+	}); err != nil {
+		return fmt.Errorf("failed to insert key batch: %w", err)
+	}
+	logger.Logger.Infof("Inserted batch of %d keys into the database.", len(batch))
+	return nil
+}
+
+// ExportTopKeys exports the top N keys by score to a CSV file
+func (s *Scorer) ExportTopKeys(limit int) error {
+	var keys []KeyInfo
+	if err := s.db.Order("score DESC, unique_letters_count").
+		Limit(limit).
+		Find(&keys).Error; err != nil {
+		return fmt.Errorf("failed to retrieve top keys: %w", err)
+	}
+
+	outputFile := "top_keys.csv"
+	if err := exportKeysToCSV(keys, outputFile); err != nil {
+		return err
+	}
+
+	logger.Logger.Infof("Exported %d top keys to %s", limit, outputFile)
+	return nil
+}
+
+// ExportLowLetterCountKeys exports the top N keys with the lowest letter count to a CSV file
+func (s *Scorer) ExportLowLetterCountKeys(limit int) error {
+	var keys []KeyInfo
+	if err := s.db.Where("unique_letters_count < ?", 5).
+		Order("unique_letters_count, score DESC").
+		Limit(limit).
+		Find(&keys).Error; err != nil {
+		return fmt.Errorf("failed to retrieve low letter count keys: %w", err)
+	}
+
+	outputFile := "low_letter_count_keys.csv"
+	if err := exportKeysToCSV(keys, outputFile); err != nil {
+		return err
+	}
+
+	logger.Logger.Infof("Exported %d low letter count keys to %s", limit, outputFile)
+	return nil
+}
+
+// ExportKeyByFingerprint exports a key by its last sixteen fingerprint characters to a file
+func (s *Scorer) ExportKeyByFingerprint(lastSixteen string, outputDir string) error {
+	var key KeyInfo
+	fingerprintPattern := "%" + strings.ToLower(lastSixteen)
+	if err := s.db.Where("fingerprint LIKE ?", fingerprintPattern).
+		First(&key).Error; err != nil {
+		return fmt.Errorf("failed to find key: %w", err)
+	}
+
+	// Decode the private key
+	decodedPrivateKey, err := base64.StdEncoding.DecodeString(key.PrivateKey)
+	if err != nil {
+		return fmt.Errorf("failed to decode private key: %w", err)
+	}
+
+	// Ensure the output directory exists
+	if err := os.MkdirAll(outputDir, os.ModePerm); err != nil {
+		return fmt.Errorf("failed to create output directory: %w", err)
+	}
+
+	// Create the output file
+	outputFile := filepath.Join(outputDir, key.Fingerprint+".gpg")
+	if err := os.WriteFile(outputFile, decodedPrivateKey, 0600); err != nil {
+		return fmt.Errorf("failed to write encrypted private key to file: %w", err)
+	}
+
+	logger.Logger.Infof("Successfully exported key to %s", outputFile)
+	return nil
+}
+
+// ShowTopKeys displays the top N keys by score in the console
+func (s *Scorer) ShowTopKeys(n int) error {
+	var keys []KeyInfo
+	if err := s.db.Order("score DESC, unique_letters_count").
+		Limit(n).
+		Find(&keys).Error; err != nil {
+		return fmt.Errorf("failed to retrieve top keys: %w", err)
+	}
+
+	displayKeys(keys)
+	return nil
+}
+
+// ShowLowLetterCountKeys displays the top N keys with the lowest letter count in the console
+func (s *Scorer) ShowLowLetterCountKeys(n int) error {
+	var keys []KeyInfo
+	if err := s.db.Where("unique_letters_count < ?", 5).
+		Order("unique_letters_count, score DESC").
+		Limit(n).
+		Find(&keys).Error; err != nil {
+		return fmt.Errorf("failed to retrieve low letter count keys: %w", err)
+	}
+
+	displayKeys(keys)
+	return nil
+}
+
+// displayKeys prints the keys in a formatted table
+func displayKeys(keys []KeyInfo) {
+	fmt.Println("Fingerprint      Score  Letters Count")
+	fmt.Println("---------------- ------ -------------")
+	for _, key := range keys {
+		shortFingerprint := strings.ToUpper(key.Fingerprint[len(key.Fingerprint)-16:])
+		fmt.Printf("%-16s %6d %13d\n", shortFingerprint, key.Score, key.UniqueLettersCount)
+	}
+}
+
+// exportKeysToCSV exports a list of keys to a CSV file
+func exportKeysToCSV(keys []KeyInfo, filename string) error {
+	file, err := os.Create(filename)
 	if err != nil {
 		return fmt.Errorf("failed to create output file: %w", err)
 	}
 	defer file.Close()
 
-	_, err = file.WriteString("Fingerprint,Score,LettersCount,PublicKey,PrivateKey\n")
-	if err != nil {
+	// Write CSV header
+	if _, err := file.WriteString("Fingerprint,Score,LettersCount,PublicKey,PrivateKey\n"); err != nil {
 		return fmt.Errorf("failed to write header: %w", err)
 	}
 
-	for rows.Next() {
-		var fingerprint string
-		var score, lettersCount int
-		var publicKey, privateKey string
-		err := rows.Scan(&fingerprint, &score, &lettersCount, &publicKey, &privateKey)
-		if err != nil {
-			return fmt.Errorf("failed to scan row: %w", err)
-		}
-
+	// Write each key as a CSV row
+	for _, key := range keys {
 		// Escape commas and newlines in the keys
-		publicKey = strings.ReplaceAll(publicKey, "\n", "\\n")
-		privateKey = strings.ReplaceAll(privateKey, "\n", "\\n")
+		publicKey := strings.ReplaceAll(key.PublicKey, "\n", "\\n")
+		privateKey := strings.ReplaceAll(key.PrivateKey, "\n", "\\n")
 
-		_, err = file.WriteString(fmt.Sprintf("%s,%d,%d,\"%s\",\"%s\"\n",
-			fingerprint, score, lettersCount, publicKey, privateKey))
-		if err != nil {
+		row := fmt.Sprintf("%s,%d,%d,\"%s\",\"%s\"\n",
+			strings.ToUpper(key.Fingerprint[len(key.Fingerprint)-16:]),
+			key.Score,
+			key.UniqueLettersCount,
+			publicKey,
+			privateKey,
+		)
+		if _, err := file.WriteString(row); err != nil {
 			return fmt.Errorf("failed to write row: %w", err)
 		}
-	}
-
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("row iteration failed: %w", err)
-	}
-
-	logger.Logger.Info("Exported " + strconv.Itoa(limit) + " keys to " + outputFile)
-	return nil
-}
-
-func (s *Scorer) ExportKeyByFingerprint(lastSixteen string, outputDir string) error {
-	query := `SELECT fingerprint, private_key FROM gpg_ed25519_keys WHERE fingerprint LIKE $1`
-	row := s.db.QueryRow(query, "%"+strings.ToLower(lastSixteen))
-
-	var fingerprint, encodedPrivateKey string
-	err := row.Scan(&fingerprint, &encodedPrivateKey)
-	if err != nil {
-		return fmt.Errorf("failed to find key: %w", err)
-	}
-
-	// Base64 解码私钥
-	decodedPrivateKey, err := base64.StdEncoding.DecodeString(encodedPrivateKey)
-	if err != nil {
-		return fmt.Errorf("failed to decode private key: %w", err)
-	}
-
-	// 创建输出文件
-	outputFile := filepath.Join(outputDir, fingerprint+".gpg")
-	err = os.WriteFile(outputFile, decodedPrivateKey, 0o600)
-	if err != nil {
-		return fmt.Errorf("failed to write encrypted private key to file: %w", err)
-	}
-
-	return nil
-}
-
-func (s *Scorer) ShowTopKeys(n int) error {
-	query := `SELECT upper(substr(fingerprint, 25, 16)) as fingerprint, score, unique_letters_count
-              FROM gpg_ed25519_keys
-              ORDER BY score DESC, unique_letters_count
-              LIMIT $1`
-
-	return s.showKeys(query, n)
-}
-
-func (s *Scorer) ShowLowLetterCountKeys(n int) error {
-	query := `SELECT upper(substr(fingerprint, 25, 16)) as fingerprint, score, unique_letters_count
-              FROM gpg_ed25519_keys
-              ORDER BY unique_letters_count, score DESC
-              LIMIT $1`
-
-	return s.showKeys(query, n)
-}
-
-func (s *Scorer) showKeys(query string, n int) error {
-	rows, err := s.db.Query(query, n)
-	if err != nil {
-		return fmt.Errorf("failed to query keys: %w", err)
-	}
-	defer rows.Close()
-
-	fmt.Println("Fingerprint      Score  Letters Count")
-	fmt.Println("---------------- ------ -------------")
-
-	for rows.Next() {
-		var fingerprint string
-		var score, lettersCount int
-		if err := rows.Scan(&fingerprint, &score, &lettersCount); err != nil {
-			return fmt.Errorf("failed to scan row: %w", err)
-		}
-		fmt.Printf("%-16s %6d %13d\n", fingerprint, score, lettersCount)
-	}
-
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("error iterating over rows: %w", err)
 	}
 
 	return nil

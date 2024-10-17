@@ -15,6 +15,7 @@ type Encryptor struct {
 	Entity *openpgp.Entity
 }
 
+// NewEncryptor initializes an Encryptor with the provided configuration
 func NewEncryptor(cfg *config.KeyEncryptionConfig) (*Encryptor, error) {
 	if cfg.PublicKeyPath == "" {
 		return nil, errors.New("public_key_path is not provided in configuration")
@@ -37,6 +38,7 @@ func NewEncryptor(cfg *config.KeyEncryptionConfig) (*Encryptor, error) {
 	return &Encryptor{Entity: entities[0]}, nil
 }
 
+// EncryptAndEncode encrypts the plaintext and returns a base64-encoded string
 func (e *Encryptor) EncryptAndEncode(plaintext string) (string, error) {
 	var buf bytes.Buffer
 	w, err := openpgp.Encrypt(&buf, []*openpgp.Entity{e.Entity}, nil, nil, nil)
@@ -47,11 +49,9 @@ func (e *Encryptor) EncryptAndEncode(plaintext string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	err = w.Close()
-	if err != nil {
+	if err := w.Close(); err != nil {
 		return "", err
 	}
 	encoded := base64.StdEncoding.EncodeToString(buf.Bytes())
 	return encoded, nil
-	// return buf.String(), nil
 }
