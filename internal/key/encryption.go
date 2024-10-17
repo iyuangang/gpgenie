@@ -4,8 +4,9 @@ import (
 	"bytes"
 	"encoding/base64"
 	"errors"
-	"gpgenie/internal/config"
 	"os"
+
+	"gpgenie/internal/config"
 
 	"github.com/ProtonMail/go-crypto/openpgp"
 )
@@ -40,17 +41,17 @@ func (e *Encryptor) EncryptAndEncode(plaintext string) (string, error) {
 	var buf bytes.Buffer
 	w, err := openpgp.Encrypt(&buf, []*openpgp.Entity{e.Entity}, nil, nil, nil)
 	if err != nil {
-			return "", err
+		return "", err
 	}
 	_, err = w.Write([]byte(plaintext))
 	if err != nil {
-			return "", err
+		return "", err
 	}
 	err = w.Close()
 	if err != nil {
-			return "", err
+		return "", err
 	}
 	encoded := base64.StdEncoding.EncodeToString(buf.Bytes())
 	return encoded, nil
-	//return buf.String(), nil
+	// return buf.String(), nil
 }

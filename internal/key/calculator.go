@@ -6,11 +6,11 @@ import (
 )
 
 type Scores struct {
-	RepeatLetterScore      int
-	IncreasingLetterScore  int
-	DecreasingLetterScore  int
-	MagicLetterScore       int
-	UniqueLettersCount     int
+	RepeatLetterScore     int
+	IncreasingLetterScore int
+	DecreasingLetterScore int
+	MagicLetterScore      int
+	UniqueLettersCount    int
 }
 
 func calculateScores(line string) Scores {
@@ -22,11 +22,11 @@ func calculateScores(line string) Scores {
 	magicScore := calculateMagicLetterScore(line)
 
 	return Scores{
-		RepeatLetterScore:      repeatScore,
-		IncreasingLetterScore:  increasingScore,
-		DecreasingLetterScore:  decreasingScore,
-		MagicLetterScore:       magicScore,
-		UniqueLettersCount:     countUniqueChars(line),
+		RepeatLetterScore:     repeatScore,
+		IncreasingLetterScore: increasingScore,
+		DecreasingLetterScore: decreasingScore,
+		MagicLetterScore:      magicScore,
+		UniqueLettersCount:    countUniqueChars(line),
 	}
 }
 
@@ -68,7 +68,7 @@ func calculateSequenceScore(s string, increasing bool) int {
 			currentSequence++
 		} else {
 			if currentSequence > 3 {
-				score := int(math.Pow(float64(currentSequence - 1), 1.5)) * len(s)
+				score := int(math.Pow(float64(currentSequence-1), 1.5)) * len(s)
 				if score > maxScore {
 					maxScore = score
 				}
@@ -77,7 +77,7 @@ func calculateSequenceScore(s string, increasing bool) int {
 		}
 	}
 	if currentSequence > 3 {
-		score := int(math.Pow(float64(currentSequence - 1), 1.5)) * len(s)
+		score := int(math.Pow(float64(currentSequence-1), 1.5)) * len(s)
 		if score > maxScore {
 			maxScore = score
 		}

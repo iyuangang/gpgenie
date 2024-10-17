@@ -4,13 +4,14 @@ import (
 	"database/sql"
 	"flag"
 	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
+
 	"gpgenie/internal/config"
 	"gpgenie/internal/database"
 	"gpgenie/internal/key"
 	"gpgenie/internal/logger"
-	"os"
-	"os/signal"
-	"syscall"
 )
 
 func main() {
@@ -34,14 +35,14 @@ func run() error {
 		return fmt.Errorf("failed to connect to database: %w", err)
 	}
 	defer database.CloseDB(db)
-	
+
 	sqlDB, err := db.DB()
 	if err != nil {
 		logger.Logger.Fatalf("Failed to get database instance: %v", err)
 	}
 	defer sqlDB.Close()
 	setupGracefulShutdown(sqlDB)
-	
+
 	var encryptor *key.Encryptor
 	if cfg.KeyEncryption.PublicKeyPath != "" {
 		encryptor, err = key.NewEncryptor(&cfg.KeyEncryption)
@@ -51,13 +52,11 @@ func run() error {
 		logger.Logger.Info("Encryption public key loaded successfully")
 	}
 
-
 	scorer := key.NewScorer(sqlDB, cfg, encryptor)
 
 	if err := handleCommands(scorer); err != nil {
 		return err
 	}
-	
 
 	return nil
 }

@@ -59,9 +59,9 @@ func (s *Scorer) GenerateKeys() error {
 func (s *Scorer) generateAndScoreKeyPair() (*KeyInfo, error) {
 	cfg := s.config.KeyGeneration
 	entity, err := openpgp.NewEntity(cfg.Name, cfg.Comment, cfg.Email, &packet.Config{
-		DefaultHash:   crypto.SHA256,
-		Time:          time.Now,
-		Algorithm:     packet.PubKeyAlgoEdDSA,
+		DefaultHash:     crypto.SHA256,
+		Time:            time.Now,
+		Algorithm:       packet.PubKeyAlgoEdDSA,
 		KeyLifetimeSecs: 0,
 	})
 	if err != nil {
@@ -71,7 +71,7 @@ func (s *Scorer) generateAndScoreKeyPair() (*KeyInfo, error) {
 	fingerprint := fmt.Sprintf("%x", entity.PrimaryKey.Fingerprint)
 	scores := calculateScores(fingerprint[len(fingerprint)-16:])
 	totalScore := scores.RepeatLetterScore + scores.IncreasingLetterScore + scores.DecreasingLetterScore + scores.MagicLetterScore
-	
+
 	if totalScore <= cfg.MinScore && scores.UniqueLettersCount >= cfg.MaxLettersCount {
 		return nil, fmt.Errorf("key does not meet criteria")
 	}
@@ -105,7 +105,7 @@ func (s *Scorer) generateAndScoreKeyPair() (*KeyInfo, error) {
 
 	keyInfo := keyInfoPool.Get().(*KeyInfo)
 	*keyInfo = KeyInfo{
-		Fingerprint:  fingerprint,
+		Fingerprint:           fingerprint,
 		PublicKey:             pubKeyBuf.String(),
 		PrivateKey:            privKeyBuf.String(),
 		RepeatLetterScore:     scores.RepeatLetterScore,
@@ -146,9 +146,9 @@ func (s *Scorer) insertKeyBatch(batch []*KeyInfo) error {
 	defer tx.Rollback()
 
 	stmt, err := tx.Prepare(`
-		INSERT INTO gpg_ed25519_keys (fingerprint, public_key, private_key,repeat_letter_score, increasing_letter_score, decreasing_letter_score, magic_letter_score, score, unique_letters_count)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-	`)
+    INSERT INTO gpg_ed25519_keys (fingerprint, public_key, private_key,repeat_letter_score, increasing_letter_score, decreasing_letter_score, magic_letter_score, score, unique_letters_count)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+  `)
 	if err != nil {
 		return err
 	}
