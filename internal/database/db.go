@@ -13,22 +13,26 @@ import (
 )
 
 // Connect establishes a database connection using GORM
-func Connect(cfg config.DatabaseConfig) (*gorm.DB, error) {
+func Connect(cfg config.Config) (*gorm.DB, error) {
 	var dialector gorm.Dialector
 
-	switch cfg.Type {
+	switch cfg.Database.Type {
 	case "postgres":
 		dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
-			cfg.Host, cfg.Port, cfg.User, cfg.Password, cfg.DBName)
+			cfg.Database.Host, cfg.Database.Port, cfg.Database.User, cfg.Database.Password, cfg.Database.DBName)
 		dialector = postgres.Open(dsn)
 	case "sqlite":
-		dialector = sqlite.Open(cfg.DBName)
+		dialector = sqlite.Open(cfg.Database.DBName)
 	default:
-		return nil, fmt.Errorf("unsupported database type: %s", cfg.Type)
+		return nil, fmt.Errorf("unsupported database type: %s", cfg.Database.Type)
 	}
-
 	// Configure GORM logger
-	gormLogger := logger.Default.LogMode(logger.Info)
+	var gormLogger logger.Interface
+	if cfg.Environment == "development" {
+		gormLogger = logger.Default.LogMode(logger.Info)
+	} else {
+		gormLogger = logger.Default.LogMode(logger.Warn)
+	}
 
 	// Initialize GORM DB
 	db, err := gorm.Open(dialector, &gorm.Config{
@@ -45,9 +49,9 @@ func Connect(cfg config.DatabaseConfig) (*gorm.DB, error) {
 	}
 
 	// Set connection pool parameters
-	sqlDB.SetMaxOpenConns(cfg.MaxOpenConns)
-	sqlDB.SetMaxIdleConns(cfg.MaxIdleConns)
-	sqlDB.SetConnMaxLifetime(time.Duration(cfg.ConnMaxLifetime) * time.Second)
+	sqlDB.SetMaxOpenConns(cfg.Database.MaxOpenConns)
+	sqlDB.SetMaxIdleConns(cfg.Database.MaxIdleConns)
+	sqlDB.SetConnMaxLifetime(time.Duration(cfg.Database.ConnMaxLifetime) * time.Second)
 
 	// Verify connection
 	if err = sqlDB.Ping(); err != nil {

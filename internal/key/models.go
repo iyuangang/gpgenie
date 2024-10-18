@@ -11,12 +11,12 @@ type KeyInfo struct {
 	IncreasingLetterScore int    `gorm:"column:increasing_letter_score"`
 	DecreasingLetterScore int    `gorm:"column:decreasing_letter_score"`
 	MagicLetterScore      int    `gorm:"column:magic_letter_score"`
-	Score                 int    `gorm:"column:score"`
-	UniqueLettersCount    int    `gorm:"column:unique_letters_count"`
+	Score                 int    `gorm:"index;column:score"`
+	UniqueLettersCount    int    `gorm:"index;column:unique_letters_count"`
 }
 
 type ShowKeyInfo struct {
 	Fingerprint        string `gorm:"primaryKey;column:fingerprint"`
-	Score              int    `gorm:"column:score"`
-	UniqueLettersCount int    `gorm:"column:unique_letters_count"`
+	Score              int    `gorm:"index;column:score"`
+	UniqueLettersCount int    `gorm:"index;column:unique_letters_count"`
 }

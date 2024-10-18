@@ -1,10 +1,13 @@
 package config
 
 import (
+	"strings"
+
 	"github.com/spf13/viper"
 )
 
 type Config struct {
+	Environment   string              `mapstructure:"environment"`
 	Database      DatabaseConfig      `mapstructure:"database"`
 	Processing    ProcessingConfig    `mapstructure:"processing"`
 	KeyGeneration KeyGenerationConfig `mapstructure:"key_generation"`
@@ -12,19 +15,20 @@ type Config struct {
 }
 
 type DatabaseConfig struct {
-	Type            string `mapstructure:"type"`     // "postgres" or "sqlite"
-	Host            string `mapstructure:"host"`     // Only for postgres
-	Port            int    `mapstructure:"port"`     // Only for postgres
-	User            string `mapstructure:"user"`     // Only for postgres
-	Password        string `mapstructure:"password"` // Only for postgres
+	Type            string `mapstructure:"type"`
+	Host            string `mapstructure:"host"`
+	Port            int    `mapstructure:"port"`
+	User            string `mapstructure:"user"`
+	Password        string `mapstructure:"password"`
 	DBName          string `mapstructure:"dbname"`
 	MaxOpenConns    int    `mapstructure:"max_open_conns"`
 	MaxIdleConns    int    `mapstructure:"max_idle_conns"`
-	ConnMaxLifetime int    `mapstructure:"conn_max_lifetime"` // in seconds
+	ConnMaxLifetime int    `mapstructure:"conn_max_lifetime"`
 }
 
 type ProcessingConfig struct {
-	BatchSize int `mapstructure:"batch_size"`
+	BatchSize          int `mapstructure:"batch_size"`
+	MaxConcurrentFiles int `mapstructure:"max_concurrent_files"`
 }
 
 type KeyGenerationConfig struct {
@@ -45,9 +49,15 @@ func Load(configPath string) (*Config, error) {
 	viper.SetConfigFile(configPath)
 	viper.SetConfigType("json")
 
+	// 读取配置文件
 	if err := viper.ReadInConfig(); err != nil {
 		return nil, err
 	}
+
+	// 绑定环境变量
+	viper.SetEnvPrefix("GPGENIE")
+	viper.AutomaticEnv()
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 
 	var cfg Config
 	if err := viper.Unmarshal(&cfg); err != nil {
