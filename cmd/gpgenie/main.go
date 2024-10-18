@@ -34,7 +34,11 @@ func run() error {
 		logger.Logger.Errorf("Database connection error: %v", err)
 		return fmt.Errorf("failed to connect to database: %w", err)
 	}
-	defer database.CloseDB(db)
+	defer func() {
+		if err := database.CloseDB(db); err != nil {
+			logger.Logger.Errorf("Failed to close database: %v", err)
+		}
+	}()
 
 	logger.Logger.Infof("Connected to database: %s", cfg.Database.DBName)
 
