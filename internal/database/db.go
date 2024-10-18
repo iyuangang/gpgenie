@@ -28,7 +28,7 @@ func Connect(cfg config.DatabaseConfig) (*gorm.DB, error) {
 	}
 
 	// Configure GORM logger
-	gormLogger := logger.Default.LogMode(logger.Warn)
+	gormLogger := logger.Default.LogMode(logger.Info)
 
 	// Initialize GORM DB
 	db, err := gorm.Open(dialector, &gorm.Config{

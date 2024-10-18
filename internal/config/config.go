@@ -5,18 +5,18 @@ import (
 )
 
 type Config struct {
-	Database       DatabaseConfig      `mapstructure:"database"`
-	Processing     ProcessingConfig    `mapstructure:"processing"`
-	KeyGeneration  KeyGenerationConfig `mapstructure:"key_generation"`
-	KeyEncryption  KeyEncryptionConfig `mapstructure:"key_encryption"`
+	Database      DatabaseConfig      `mapstructure:"database"`
+	Processing    ProcessingConfig    `mapstructure:"processing"`
+	KeyGeneration KeyGenerationConfig `mapstructure:"key_generation"`
+	KeyEncryption KeyEncryptionConfig `mapstructure:"key_encryption"`
 }
 
 type DatabaseConfig struct {
-	Type            string `mapstructure:"type"`             // "postgres" or "sqlite"
-	Host            string `mapstructure:"host"`             // Only for postgres
-	Port            int    `mapstructure:"port"`             // Only for postgres
-	User            string `mapstructure:"user"`             // Only for postgres
-	Password        string `mapstructure:"password"`         // Only for postgres
+	Type            string `mapstructure:"type"`     // "postgres" or "sqlite"
+	Host            string `mapstructure:"host"`     // Only for postgres
+	Port            int    `mapstructure:"port"`     // Only for postgres
+	User            string `mapstructure:"user"`     // Only for postgres
+	Password        string `mapstructure:"password"` // Only for postgres
 	DBName          string `mapstructure:"dbname"`
 	MaxOpenConns    int    `mapstructure:"max_open_conns"`
 	MaxIdleConns    int    `mapstructure:"max_idle_conns"`
@@ -24,7 +24,7 @@ type DatabaseConfig struct {
 }
 
 type ProcessingConfig struct {
-	BatchSize       int `mapstructure:"batch_size"`
+	BatchSize int `mapstructure:"batch_size"`
 }
 
 type KeyGenerationConfig struct {

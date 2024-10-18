@@ -17,9 +17,9 @@ import (
 func NewEntity(cfg *config.KeyGenerationConfig) (*openpgp.Entity, error) {
 	return openpgp.NewEntity(cfg.Name, cfg.Comment, cfg.Email, &packet.Config{
 		DefaultHash:     crypto.SHA256,
-			Time:            time.Now,
-			Algorithm:       packet.PubKeyAlgoEdDSA,
-			KeyLifetimeSecs: 0,
+		Time:            time.Now,
+		Algorithm:       packet.PubKeyAlgoEdDSA,
+		KeyLifetimeSecs: 0,
 	})
 }
 

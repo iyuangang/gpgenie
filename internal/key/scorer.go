@@ -183,7 +183,7 @@ func (s *Scorer) ExportTopKeys(limit int) error {
 // ExportLowLetterCountKeys exports the top N keys with the lowest letter count to a CSV file
 func (s *Scorer) ExportLowLetterCountKeys(limit int) error {
 	var keys []KeyInfo
-	if err := s.db.Where("unique_letters_count < ?", 5).
+	if err := s.db.Where("unique_letters_count < 4").
 		Order("unique_letters_count, score DESC").
 		Limit(limit).
 		Find(&keys).Error; err != nil {
@@ -221,7 +221,7 @@ func (s *Scorer) ExportKeyByFingerprint(lastSixteen string, outputDir string) er
 
 	// Create the output file
 	outputFile := filepath.Join(outputDir, key.Fingerprint+".gpg")
-	if err := os.WriteFile(outputFile, decodedPrivateKey, 0600); err != nil {
+	if err := os.WriteFile(outputFile, decodedPrivateKey, 0o600); err != nil {
 		return fmt.Errorf("failed to write encrypted private key to file: %w", err)
 	}
 
@@ -231,8 +231,10 @@ func (s *Scorer) ExportKeyByFingerprint(lastSixteen string, outputDir string) er
 
 // ShowTopKeys displays the top N keys by score in the console
 func (s *Scorer) ShowTopKeys(n int) error {
-	var keys []KeyInfo
-	if err := s.db.Order("score DESC, unique_letters_count").
+	var keys []ShowKeyInfo
+	if err := s.db.Model(&KeyInfo{}).
+		Where("score > ?", 400).
+		Order("score DESC, unique_letters_count").
 		Limit(n).
 		Find(&keys).Error; err != nil {
 		return fmt.Errorf("failed to retrieve top keys: %w", err)
@@ -244,8 +246,9 @@ func (s *Scorer) ShowTopKeys(n int) error {
 
 // ShowLowLetterCountKeys displays the top N keys with the lowest letter count in the console
 func (s *Scorer) ShowLowLetterCountKeys(n int) error {
-	var keys []KeyInfo
-	if err := s.db.Where("unique_letters_count < ?", 5).
+	var keys []ShowKeyInfo
+	if err := s.db.Model(&KeyInfo{}).
+		Where("unique_letters_count < ?", 4).
 		Order("unique_letters_count, score DESC").
 		Limit(n).
 		Find(&keys).Error; err != nil {
@@ -257,7 +260,7 @@ func (s *Scorer) ShowLowLetterCountKeys(n int) error {
 }
 
 // displayKeys prints the keys in a formatted table
-func displayKeys(keys []KeyInfo) {
+func displayKeys(keys []ShowKeyInfo) {
 	fmt.Println("Fingerprint      Score  Letters Count")
 	fmt.Println("---------------- ------ -------------")
 	for _, key := range keys {
