@@ -2,7 +2,6 @@ package key
 
 import (
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -70,7 +69,8 @@ func (s *Scorer) GenerateKeys() error {
 	// 启动 Worker
 	for i := 0; i < workerCount; i++ {
 		wg.Add(1)
-		go s.worker(jobs, results, errorsChan, &wg)
+		go s.worker(i, jobs, results, errorsChan, &wg)
+		logger.Logger.Infof("Worker %d launched.", i)
 	}
 
 	// 发送 Jobs
@@ -90,11 +90,15 @@ func (s *Scorer) GenerateKeys() error {
 
 	// 收集结果并批量插入数据库
 	batch := make([]*models.KeyInfo, 0, s.config.Processing.BatchSize)
+	insertedCount := 0
 	for keyInfo := range results {
 		batch = append(batch, keyInfo)
 		if len(batch) >= s.config.Processing.BatchSize {
 			if err := s.repo.BatchCreateKeyInfo(batch); err != nil {
 				logger.Logger.Errorf("Failed to insert key batch: %v", err)
+			} else {
+				insertedCount += len(batch)
+				logger.Logger.Infof("Inserted a batch of %d keys. Total inserted: %d", len(batch), insertedCount)
 			}
 			batch = batch[:0]
 		}
@@ -102,6 +106,9 @@ func (s *Scorer) GenerateKeys() error {
 	if len(batch) > 0 {
 		if err := s.repo.BatchCreateKeyInfo(batch); err != nil {
 			logger.Logger.Errorf("Failed to insert final key batch: %v", err)
+		} else {
+			insertedCount += len(batch)
+			logger.Logger.Infof("Inserted the final batch of %d keys. Total inserted: %d", len(batch), insertedCount)
 		}
 	}
 
@@ -117,16 +124,26 @@ func (s *Scorer) GenerateKeys() error {
 }
 
 // worker 是 Worker Pool 的单个 Worker，负责生成和评分密钥
-func (s *Scorer) worker(jobs <-chan struct{}, results chan<- *models.KeyInfo, errorsChan chan<- error, wg *sync.WaitGroup) {
+func (s *Scorer) worker(id int, jobs <-chan struct{}, results chan<- *models.KeyInfo, errorsChan chan<- error, wg *sync.WaitGroup) {
 	defer wg.Done()
+	logger.Logger.Infof("Worker %d started.", id)
+	taskCount := 0
+	skippedCount := 0
 	for range jobs {
 		keyInfo, err := s.generateAndScoreKeyPair()
 		if err != nil {
-			errorsChan <- err
-		} else {
+			errorsChan <- fmt.Errorf("worker %d: %w", id, err)
+		} else if keyInfo != nil {
 			results <- keyInfo
+			taskCount++
+			if taskCount%10 == 0 { // 每处理10个任务记录一次日志
+				logger.Logger.Infof("Worker %d has processed %d tasks.", id, taskCount)
+			}
+		} else {
+			skippedCount++
 		}
 	}
+	logger.Logger.Infof("Worker %d stopped after processing %d tasks and skipping %d keys.", id, taskCount, skippedCount)
 }
 
 // generateAndScoreKeyPair 生成单个密钥对并计算其分数
@@ -141,8 +158,10 @@ func (s *Scorer) generateAndScoreKeyPair() (*models.KeyInfo, error) {
 	scores := CalculateScores(fingerprint[len(fingerprint)-16:])
 	totalScore := scores.RepeatLetterScore + scores.IncreasingLetterScore + scores.DecreasingLetterScore + scores.MagicLetterScore
 
+	// 修改此处：不符合标准时返回 (nil, nil) 而不是错误
 	if totalScore <= cfg.MinScore && scores.UniqueLettersCount >= cfg.MaxLettersCount {
-		return nil, errors.New("key does not meet criteria")
+		//logger.Logger.Debugf("Key %s does not meet criteria (Score: %d, UniqueLettersCount: %d). Skipping.", fingerprint, totalScore, scores.UniqueLettersCount)
+		return nil, nil
 	}
 
 	pubKeyStr, privKeyStr, err := SerializeKeys(entity, s.encryptor)
