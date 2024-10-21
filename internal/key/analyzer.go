@@ -2,8 +2,9 @@ package key
 
 import (
 	"fmt"
-	"gpgenie/internal/repository"
 	"math"
+
+	"gpgenie/internal/repository"
 )
 
 // Analyzer 负责执行数据分析

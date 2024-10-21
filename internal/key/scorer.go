@@ -1,6 +1,7 @@
 package key
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"os"
@@ -54,34 +55,42 @@ func (s *Scorer) createTablesIfNotExist() error {
 	return nil
 }
 
-// GenerateKeys 使用 Worker Pool 模式并发生成和评分密钥
+// GenerateKeys 使用优化后的 Worker Pool 模式并发生成和评分密钥
 func (s *Scorer) GenerateKeys() error {
 	cfg := s.config.KeyGeneration
 	workerCount := cfg.NumWorkers
 	jobCount := cfg.TotalKeys
 
-	jobs := make(chan struct{}, jobCount)
-	results := make(chan *models.KeyInfo, jobCount)
-	errorsChan := make(chan error, jobCount)
+	// 初始化带有较小缓冲区的通道，以控制内存使用
+	jobs := make(chan struct{}, workerCount*2)
+	results := make(chan *models.KeyInfo, workerCount*2)
+	errorsChan := make(chan error, workerCount*2)
 
 	var wg sync.WaitGroup
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	// 启动 Worker
+	// 启动 Worker 并传递 context
 	for i := 0; i < workerCount; i++ {
 		wg.Add(1)
-		go s.worker(i, jobs, results, errorsChan, &wg)
+		go s.worker(ctx, i, jobs, results, errorsChan, &wg)
 		logger.Logger.Infof("Worker %d launched.", i)
 	}
 
-	// 发送 Jobs
+	// 分发 Jobs
 	go func() {
 		for i := 0; i < jobCount; i++ {
-			jobs <- struct{}{}
+			select {
+			case jobs <- struct{}{}:
+			case <-ctx.Done():
+				logger.Logger.Warn("Job dispatching stopped due to cancellation.")
+				return
+			}
 		}
 		close(jobs)
 	}()
 
-	// 等待所有 Workers 完成，然后关闭结果和错误通道
+	// 等待 Workers 完成并关闭结果和错误通道
 	go func() {
 		wg.Wait()
 		close(results)
@@ -91,18 +100,41 @@ func (s *Scorer) GenerateKeys() error {
 	// 收集结果并批量插入数据库
 	batch := make([]*models.KeyInfo, 0, s.config.Processing.BatchSize)
 	insertedCount := 0
-	for keyInfo := range results {
-		batch = append(batch, keyInfo)
-		if len(batch) >= s.config.Processing.BatchSize {
-			if err := s.repo.BatchCreateKeyInfo(batch); err != nil {
-				logger.Logger.Errorf("Failed to insert key batch: %v", err)
+	for {
+		select {
+		case keyInfo, ok := <-results:
+			if !ok {
+				results = nil
 			} else {
-				insertedCount += len(batch)
-				logger.Logger.Infof("Inserted a batch of %d keys. Total inserted: %d", len(batch), insertedCount)
+				batch = append(batch, keyInfo)
+				if len(batch) >= s.config.Processing.BatchSize {
+					if err := s.repo.BatchCreateKeyInfo(batch); err != nil {
+						logger.Logger.Errorf("Failed to insert key batch: %v", err)
+						// 可选：在数据库错误时取消
+						// cancel()
+					} else {
+						insertedCount += len(batch)
+						logger.Logger.Infof("Inserted a batch of %d keys. Total inserted: %d", len(batch), insertedCount)
+					}
+					batch = batch[:0]
+				}
 			}
-			batch = batch[:0]
+		case err, ok := <-errorsChan:
+			if !ok {
+				errorsChan = nil
+			} else if err != nil {
+				logger.Logger.Warnf("Error during key generation: %v", err)
+				// 根据需要决定是否取消
+				// cancel()
+			}
+		}
+
+		if results == nil && errorsChan == nil {
+			break
 		}
 	}
+
+	// 插入任何剩余的 batch
 	if len(batch) > 0 {
 		if err := s.repo.BatchCreateKeyInfo(batch); err != nil {
 			logger.Logger.Errorf("Failed to insert final key batch: %v", err)
@@ -112,38 +144,42 @@ func (s *Scorer) GenerateKeys() error {
 		}
 	}
 
-	// 处理 Errors
-	for err := range errorsChan {
-		if err != nil {
-			logger.Logger.Warnf("Error during key generation: %v", err)
-		}
-	}
-
 	logger.Logger.Info("Key generation process completed.")
 	return nil
 }
 
-// worker 是 Worker Pool 的单个 Worker，负责生成和评分密钥
-func (s *Scorer) worker(id int, jobs <-chan struct{}, results chan<- *models.KeyInfo, errorsChan chan<- error, wg *sync.WaitGroup) {
+// worker 是优化后的 Worker Pool 的单个 Worker，负责生成和评分密钥
+func (s *Scorer) worker(ctx context.Context, id int, jobs <-chan struct{}, results chan<- *models.KeyInfo, errorsChan chan<- error, wg *sync.WaitGroup) {
 	defer wg.Done()
 	logger.Logger.Infof("Worker %d started.", id)
 	taskCount := 0
 	skippedCount := 0
-	for range jobs {
-		keyInfo, err := s.generateAndScoreKeyPair()
-		if err != nil {
-			errorsChan <- fmt.Errorf("worker %d: %w", id, err)
-		} else if keyInfo != nil {
-			results <- keyInfo
-			taskCount++
-			if taskCount%10 == 0 { // 每处理10个任务记录一次日志
-				logger.Logger.Infof("Worker %d has processed %d tasks.", id, taskCount)
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Logger.Infof("Worker %d received cancellation signal.", id)
+			return
+		case _, ok := <-jobs:
+			if !ok {
+				logger.Logger.Infof("Worker %d stopping as jobs channel is closed.", id)
+				return
 			}
-		} else {
-			skippedCount++
+			keyInfo, err := s.generateAndScoreKeyPair()
+			if err != nil {
+				errorsChan <- fmt.Errorf("worker %d: %w", id, err)
+				// 可选：在关键错误时取消 context
+				// cancel()
+			} else if keyInfo != nil {
+				results <- keyInfo
+				taskCount++
+				if taskCount%10 == 0 { // 每处理10个任务记录一次日志
+					logger.Logger.Infof("Worker %d has processed %d tasks.", id, taskCount)
+				}
+			} else {
+				skippedCount++
+			}
 		}
 	}
-	logger.Logger.Infof("Worker %d stopped after processing %d tasks and skipping %d keys.", id, taskCount, skippedCount)
 }
 
 // generateAndScoreKeyPair 生成单个密钥对并计算其分数

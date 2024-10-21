@@ -1,8 +1,9 @@
 package repository
 
 import (
-	"gpgenie/internal/key/models"
 	"math"
+
+	"gpgenie/internal/key/models"
 
 	"gorm.io/gorm"
 )
@@ -41,10 +42,10 @@ type UniqueLettersStats struct {
 
 // ScoreComponentsStats 用于存储分数组件的统计数据
 type ScoreComponentsStats struct {
-	AverageRepeat      float64
-	AverageIncreasing  float64
-	AverageDecreasing  float64
-	AverageMagic       float64
+	AverageRepeat     float64
+	AverageIncreasing float64
+	AverageDecreasing float64
+	AverageMagic      float64
 }
 
 // keyRepository 是 KeyRepository 的具体实现
