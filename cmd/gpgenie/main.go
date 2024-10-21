@@ -9,6 +9,7 @@ import (
 	"gpgenie/internal/database"
 	"gpgenie/internal/key"
 	"gpgenie/internal/logger"
+	"gpgenie/internal/repository"
 )
 
 func main() {
@@ -42,8 +43,11 @@ func run() error {
 
 	logger.Logger.Infof("Connected to database: %s", cfg.Database.DBName)
 
+	// 初始化 Repository
+	repo := repository.NewKeyRepository(db)
+
 	// 初始化 Scorer
-	scorer, err := key.NewScorer(db, cfg)
+	scorer, err := key.NewScorer(repo, cfg)
 	if err != nil {
 		logger.Logger.Errorf("Scorer initialization error: %v", err)
 		return fmt.Errorf("failed to initialize scorer: %w", err)
