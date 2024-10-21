@@ -13,6 +13,7 @@ type KeyRepository interface {
 	GetLowLetterCountKeys(limit int) ([]models.KeyInfo, error)
 	GetKeyByFingerprint(lastSixteen string) (*models.KeyInfo, error)
 	AutoMigrate() error
+	GetAllKeys() ([]models.KeyInfo, error)
 }
 
 // keyRepository 是 KeyRepository 的具体实现
@@ -57,4 +58,11 @@ func (r *keyRepository) GetKeyByFingerprint(lastSixteen string) (*models.KeyInfo
 // AutoMigrate 自动迁移数据库表
 func (r *keyRepository) AutoMigrate() error {
 	return r.db.AutoMigrate(&models.KeyInfo{}, &models.ShowKeyInfo{})
+}
+
+// GetAllKeys 获取数据库中所有的 KeyInfo
+func (r *keyRepository) GetAllKeys() ([]models.KeyInfo, error) {
+	var keys []models.KeyInfo
+	err := r.db.Find(&keys).Error
+	return keys, err
 }

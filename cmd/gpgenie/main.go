@@ -54,7 +54,7 @@ func run() error {
 	}
 
 	// 处理命令行命令
-	if err := handleCommands(scorer); err != nil {
+	if err := handleCommands(scorer, repo); err != nil {
 		logger.Logger.Errorf("Command handling error: %v", err)
 		return err
 	}
@@ -67,13 +67,14 @@ func loadConfig() (*config.Config, error) {
 	return config.Load(*configPath)
 }
 
-func handleCommands(scorer *key.Scorer) error {
+func handleCommands(scorer *key.Scorer, repo repository.KeyRepository) error {
 	// 定义命令行标志
 	generateKeys := flag.Bool("generate-keys", false, "Generate GPG keys")
 	showTopKeys := flag.Int("show-top", 0, "Show top N keys by score")
 	showLowLetterCount := flag.Int("show-low-letter", 0, "Show N keys with lowest letter count")
 	exportByFingerprint := flag.String("export-by-fingerprint", "", "Export key by last 16 characters of fingerprint")
 	outputDir := flag.String("output-dir", ".", "Output directory for exported keys")
+	analysis := flag.Bool("analysis", false, "Analyze stored key data")
 
 	// 重新解析标志以包含新的标志
 	flag.Parse()
@@ -91,8 +92,16 @@ func handleCommands(scorer *key.Scorer) error {
 	case *exportByFingerprint != "":
 		logger.Logger.Infof("Exporting key with fingerprint ending %s...", *exportByFingerprint)
 		return scorer.ExportKeyByFingerprint(*exportByFingerprint, *outputDir)
+	case *analysis:
+		logger.Logger.Info("Starting data analysis...")
+		return analyzeData(repo)
 	default:
 		flag.Usage()
 		return nil
 	}
+}
+
+func analyzeData(repo repository.KeyRepository) error {
+	analyzer := key.NewAnalyzer(repo)
+	return analyzer.PerformAnalysis()
 }

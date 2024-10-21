@@ -160,7 +160,7 @@ func (s *Scorer) generateAndScoreKeyPair() (*models.KeyInfo, error) {
 
 	// 修改此处：不符合标准时返回 (nil, nil) 而不是错误
 	if totalScore <= cfg.MinScore && scores.UniqueLettersCount >= cfg.MaxLettersCount {
-		//logger.Logger.Debugf("Key %s does not meet criteria (Score: %d, UniqueLettersCount: %d). Skipping.", fingerprint, totalScore, scores.UniqueLettersCount)
+		// logger.Logger.Debugf("Key %s does not meet criteria (Score: %d, UniqueLettersCount: %d). Skipping.", fingerprint, totalScore, scores.UniqueLettersCount)
 		return nil, nil
 	}
 
