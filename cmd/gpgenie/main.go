@@ -19,15 +19,15 @@ func main() {
 }
 
 func run() error {
-	// Initialize logger first to capture all logs
-	logger.InitLogger()
-	defer logger.SyncLogger()
-
 	// Load configuration
 	cfg, err := loadConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
+
+	// Initialize logger first to capture all logs
+	logger.InitLogger(cfg)
+	defer logger.SyncLogger()
 
 	// Connect to the database
 	db, err := database.Connect(cfg.Database)

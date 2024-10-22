@@ -21,7 +21,7 @@ type DatabaseConfig struct {
 	MaxOpenConns    int    `mapstructure:"max_open_conns"`
 	MaxIdleConns    int    `mapstructure:"max_idle_conns"`
 	ConnMaxLifetime int    `mapstructure:"conn_max_lifetime"` // in seconds
-	LogLevel        string `mapstructure:"log_level"`
+	LogLevel        string `mapstructure:"log_level"`         // info, warn, error, silent
 }
 
 type ProcessingConfig struct {
