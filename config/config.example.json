@@ -8,7 +8,8 @@
     "dbname": "dbname",
     "max_open_conns": 24,
     "max_idle_conns": 12,
-    "conn_max_lifetime": 300
+    "conn_max_lifetime": 300,
+    "log_level": "warn"
   },
   "processing": {
     "batch_size": 20

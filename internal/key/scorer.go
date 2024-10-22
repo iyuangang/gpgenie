@@ -2,7 +2,6 @@ package key
 
 import (
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -69,8 +68,10 @@ func (s *Scorer) GenerateKeys() error {
 			defer wg.Done()
 			for j := 0; j < keysPerWorker; j++ {
 				keyInfo, err := s.generateAndScoreKeyPair()
-				if err == nil {
-					keyInfoChan <- keyInfo
+				if keyInfo != nil {
+					if err == nil {
+						keyInfoChan <- keyInfo
+					}
 				}
 			}
 		}(i)
@@ -111,7 +112,7 @@ func (s *Scorer) generateAndScoreKeyPair() (*KeyInfo, error) {
 	totalScore := scores.RepeatLetterScore + scores.IncreasingLetterScore + scores.DecreasingLetterScore + scores.MagicLetterScore
 
 	if totalScore <= cfg.MinScore && scores.UniqueLettersCount >= cfg.MaxLettersCount {
-		return nil, errors.New("key does not meet criteria")
+		return nil, nil
 	}
 
 	pubKeyStr, privKeyStr, err := SerializeKeys(entity, s.encryptor)

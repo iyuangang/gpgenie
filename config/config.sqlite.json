@@ -4,7 +4,8 @@
     "dbname": "./keys.db",
     "max_open_conns": 1,
     "max_idle_conns": 1,
-    "conn_max_lifetime": 300
+    "conn_max_lifetime": 300,
+    "log_level": "warn"
   },
   "processing": {
     "batch_size": 1000
