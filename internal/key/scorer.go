@@ -32,7 +32,7 @@ func NewScorer(repo repository.KeyRepository, cfg *config.Config) (*Scorer, erro
 		if err != nil {
 			return nil, fmt.Errorf("failed to load encryption public key: %w", err)
 		}
-		logger.Logger.Info("Encryption public key loaded successfully")
+		logger.Logger.Debug("Encryption public key loaded successfully")
 	}
 
 	s := &Scorer{
@@ -50,11 +50,7 @@ func NewScorer(repo repository.KeyRepository, cfg *config.Config) (*Scorer, erro
 
 // createTablesIfNotExist 创建必要的数据库表
 func (s *Scorer) createTablesIfNotExist() error {
-	if err := s.repo.AutoMigrate(); err != nil {
-		logger.Logger.Fatalf("Failed to auto-migrate tables: %v", err)
-		return err
-	}
-	return nil
+	return s.repo.AutoMigrate()
 }
 
 // GenerateKeys 使用优化后的 Worker Pool 模式并发生成和评分密钥
@@ -73,7 +69,7 @@ func (s *Scorer) GenerateKeys() error {
 	for i := 0; i < workerCount; i++ {
 		wg.Add(1)
 		go s.worker(i, jobs, results, &wg)
-		logger.Logger.Infof("Worker %d launched.", i)
+		logger.Logger.Debugf("Worker %d launched.", i)
 	}
 
 	// 分发 Jobs
@@ -131,7 +127,7 @@ func (s *Scorer) GenerateKeys() error {
 // worker 是优化后的 Worker Pool 的单个 Worker，负责生成和评分密钥
 func (s *Scorer) worker(id int, jobs <-chan struct{}, results chan<- *models.KeyInfo, wg *sync.WaitGroup) {
 	defer wg.Done()
-	logger.Logger.Infof("Worker %d started.", id)
+	logger.Logger.Debugf("Worker %d started.", id)
 	for range jobs {
 		keyInfo, err := s.generateAndScoreKeyPair()
 		if keyInfo != nil {
@@ -140,7 +136,7 @@ func (s *Scorer) worker(id int, jobs <-chan struct{}, results chan<- *models.Key
 			}
 		}
 	}
-	logger.Logger.Infof("Worker %d finished working.", id)
+	logger.Logger.Debugf("Worker %d finished working.", id)
 }
 
 // generateAndScoreKeyPair 生成单个密钥对并计算其分数

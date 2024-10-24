@@ -42,7 +42,8 @@ func Connect(cfg config.Config) (*gorm.DB, error) {
 
 	// Initialize GORM DB
 	db, err := gorm.Open(dialector, &gorm.Config{
-		Logger: gormLogger,
+		Logger:      gormLogger,
+		QueryFields: true,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database with GORM: %w", err)

@@ -11,16 +11,22 @@ import (
 
 // KeyRepository 定义了与 KeyInfo 相关的数据库操作
 type KeyRepository interface {
+	AutoMigrate() error
 	BatchCreateKeyInfo(keys []*models.KeyInfo) error
 	GetTopKeys(limit int) ([]models.KeyInfo, error)
 	GetLowLetterCountKeys(limit int) ([]models.KeyInfo, error)
 	GetKeyByFingerprint(lastSixteen string) (*models.KeyInfo, error)
-	AutoMigrate() error
 	GetAllKeys() ([]models.KeyInfo, error) // 获取所有 KeyInfo
 	GetScoreStatistics() (*ScoreStats, error)
 	GetUniqueLettersStatistics() (*UniqueLettersStats, error)
 	GetScoreComponentsStatistics() (*ScoreComponentsStats, error)
 	GetCorrelationCoefficient() (float64, error)
+}
+
+type ShowKeyInfo struct {
+	Fingerprint        string
+	Score              int
+	UniqueLettersCount int
 }
 
 // ScoreStats 用于存储分数的统计数据
@@ -59,6 +65,11 @@ func NewKeyRepository(db *gorm.DB) KeyRepository {
 	return &keyRepository{db: db}
 }
 
+// AutoMigrate 自动迁移数据库表
+func (r *keyRepository) AutoMigrate() error {
+	return r.db.AutoMigrate(&models.KeyInfo{})
+}
+
 // BatchCreateKeyInfo 批量插入 KeyInfo
 func (r *keyRepository) BatchCreateKeyInfo(keys []*models.KeyInfo) error {
 	return r.db.Create(keys).Error
@@ -67,14 +78,14 @@ func (r *keyRepository) BatchCreateKeyInfo(keys []*models.KeyInfo) error {
 // GetTopKeys 获取评分最高的前 N 个 Key
 func (r *keyRepository) GetTopKeys(limit int) ([]models.KeyInfo, error) {
 	var keys []models.KeyInfo
-	err := r.db.Order("score DESC").Limit(limit).Find(&keys).Error
+	err := r.db.Order("score DESC, unique_letters_count ASC").Limit(limit).Find(&keys).Error
 	return keys, err
 }
 
 // GetLowLetterCountKeys 获取字母计数最低的前 N 个 Key
 func (r *keyRepository) GetLowLetterCountKeys(limit int) ([]models.KeyInfo, error) {
 	var keys []models.KeyInfo
-	err := r.db.Order("unique_letters_count ASC").Limit(limit).Find(&keys).Error
+	err := r.db.Order("unique_letters_count ASC, score DESC").Limit(limit).Find(&keys).Error
 	return keys, err
 }
 
@@ -86,11 +97,6 @@ func (r *keyRepository) GetKeyByFingerprint(lastSixteen string) (*models.KeyInfo
 		return nil, err
 	}
 	return &keyInfo, nil
-}
-
-// AutoMigrate 自动迁移数据库表
-func (r *keyRepository) AutoMigrate() error {
-	return r.db.AutoMigrate(&models.KeyInfo{}, &models.ShowKeyInfo{})
 }
 
 // GetAllKeys 获取数据库中所有的 KeyInfo

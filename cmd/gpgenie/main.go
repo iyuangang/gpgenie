@@ -47,7 +47,7 @@ func run() error {
 		}
 	}()
 
-	logger.Logger.Infof("Connected to database: %s", cfg.Database.DBName)
+	logger.Logger.Debugf("Connected to database: %s", cfg.Database.DBName)
 
 	// Initialize Repository
 	repo := repository.NewKeyRepository(db)
@@ -120,19 +120,19 @@ func handleCommands(scorer *key.Scorer) error {
 
 	switch {
 	case generateKeys:
-		logger.Logger.Info("Starting key generation...")
+		logger.Logger.Debug("Starting key generation...")
 		return scorer.GenerateKeys()
 	case showTopKeys > 0:
-		logger.Logger.Infof("Displaying top %d keys by score...", showTopKeys)
+		logger.Logger.Debugf("Displaying top %d keys by score...", showTopKeys)
 		return scorer.ShowTopKeys(showTopKeys)
 	case showLowLetterCount > 0:
-		logger.Logger.Infof("Displaying %d keys with lowest letter count...", showLowLetterCount)
+		logger.Logger.Debugf("Displaying %d keys with lowest letter count...", showLowLetterCount)
 		return scorer.ShowLowLetterCountKeys(showLowLetterCount)
 	case exportByFingerprint != "":
-		logger.Logger.Infof("Exporting key with fingerprint ending %s...", exportByFingerprint)
+		logger.Logger.Debugf("Exporting key with fingerprint ending %s...", exportByFingerprint)
 		return scorer.ExportKeyByFingerprint(exportByFingerprint, outputDir, exportArmor)
 	case analysis:
-		logger.Logger.Info("Starting data analysis...")
+		logger.Logger.Debug("Starting data analysis...")
 		return scorer.AnalyzeData()
 	default:
 		pflag.Usage()
