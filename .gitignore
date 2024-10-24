@@ -33,3 +33,6 @@ config.json
 *.asc
 *.gpg
 *.pgp
+
+# log file
+*.log

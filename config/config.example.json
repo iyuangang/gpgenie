@@ -24,5 +24,9 @@
   },
   "key_encryption": {
     "public_key_path": "path/to/user/public_key.asc"
+  },
+  "logging": {
+    "log_level": "warn",
+    "log_file": "gpgenie.log"
   }
 }

@@ -12,6 +12,12 @@ type Config struct {
 	Processing    ProcessingConfig    `mapstructure:"processing"`
 	KeyGeneration KeyGenerationConfig `mapstructure:"key_generation"`
 	KeyEncryption KeyEncryptionConfig `mapstructure:"key_encryption"`
+	Logging       LoggingConfig       `mapstructure:"logging"`
+}
+
+type LoggingConfig struct {
+	LogLevel string `mapstructure:"log_level"`
+	LogFile  string `mapstructure:"log_file"`
 }
 
 type DatabaseConfig struct {
