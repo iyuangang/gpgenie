@@ -26,12 +26,18 @@ func Connect(cfg config.Config) (*gorm.DB, error) {
 	default:
 		return nil, fmt.Errorf("unsupported database type: %s", cfg.Database.Type)
 	}
+
 	// Configure GORM logger
 	var gormLogger logger.Interface
-	if cfg.Environment == "development" {
+	switch cfg.Logging.LogLevel {
+	case "info":
 		gormLogger = logger.Default.LogMode(logger.Info)
-	} else {
+	case "warn":
 		gormLogger = logger.Default.LogMode(logger.Warn)
+	case "error":
+		gormLogger = logger.Default.LogMode(logger.Error)
+	default:
+		gormLogger = logger.Default.LogMode(logger.Silent)
 	}
 
 	// Initialize GORM DB
