@@ -2,13 +2,13 @@ package key
 
 import (
 	"bytes"
-	"encoding/base64"
 	"errors"
 	"os"
 
 	"gpgenie/internal/config"
 
 	"github.com/ProtonMail/go-crypto/openpgp"
+	"github.com/ProtonMail/go-crypto/openpgp/armor"
 )
 
 type Encryptor struct {
@@ -38,20 +38,35 @@ func NewEncryptor(cfg *config.KeyEncryptionConfig) (*Encryptor, error) {
 	return &Encryptor{Entity: entities[0]}, nil
 }
 
-// EncryptAndEncode encrypts the plaintext and returns a base64-encoded string
+// EncryptAndEncode encrypts the plaintext and returns an ASCII Armor-encoded string
 func (e *Encryptor) EncryptAndEncode(plaintext string) (string, error) {
 	var buf bytes.Buffer
-	w, err := openpgp.Encrypt(&buf, []*openpgp.Entity{e.Entity}, nil, nil, nil)
+
+	// Initialize ASCII Armor encoder
+	armorWriter, err := armor.Encode(&buf, "PGP MESSAGE", nil)
 	if err != nil {
 		return "", err
 	}
+
+	// Encrypt the plaintext and write to the armor encoder
+	w, err := openpgp.Encrypt(armorWriter, []*openpgp.Entity{e.Entity}, nil, nil, nil)
+	if err != nil {
+		return "", err
+	}
+
 	_, err = w.Write([]byte(plaintext))
 	if err != nil {
 		return "", err
 	}
+
 	if err := w.Close(); err != nil {
 		return "", err
 	}
-	encoded := base64.StdEncoding.EncodeToString(buf.Bytes())
-	return encoded, nil
+
+	// Close the armor writer to finalize the encoding
+	if err := armorWriter.Close(); err != nil {
+		return "", err
+	}
+
+	return buf.String(), nil
 }

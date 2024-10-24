@@ -56,100 +56,81 @@ func (s *Scorer) createTablesIfNotExist() error {
 
 // GenerateKeys 使用优化后的 Worker Pool 模式并发生成和评分密钥
 func (s *Scorer) GenerateKeys() error {
-  cfg := s.config.KeyGeneration
-  workerCount := cfg.NumWorkers
-  jobCount := cfg.TotalKeys
+	cfg := s.config.KeyGeneration
+	workerCount := cfg.NumWorkers
+	jobCount := cfg.TotalKeys
 
-  // 初始化带有合理缓冲区的通道，以平衡内存使用和任务分派效率
-  jobs := make(chan struct{}, workerCount*1000)
-  results := make(chan *models.KeyInfo, workerCount*1000)
-  errorsChan := make(chan error, workerCount*1000)
+	// 初始化带有合理缓冲区的通道，以平衡内存使用和任务分派效率
+	jobs := make(chan struct{}, workerCount*1000)
+	results := make(chan *models.KeyInfo, jobCount)
 
-  var wg sync.WaitGroup
+	var wg sync.WaitGroup
 
-  // 启动 Workers
-  for i := 0; i < workerCount; i++ {
-      wg.Add(1)
-      go s.worker(i, jobs, results, errorsChan, &wg)
-      logger.Logger.Infof("Worker %d launched.", i)
-  }
+	// 启动 Workers
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go s.worker(i, jobs, results, &wg)
+		logger.Logger.Infof("Worker %d launched.", i)
+	}
 
-  // 分发 Jobs
-  go func() {
-      for i := 0; i < jobCount; i++ {
-          jobs <- struct{}{}
-      }
-      close(jobs)
-  }()
+	// 分发 Jobs
+	go func() {
+		for i := 0; i < jobCount; i++ {
+			jobs <- struct{}{}
+		}
+		close(jobs)
+	}()
 
-  // 启动多个插入Worker
-  insertWorkers := 4 // 根据您的数据库性能和硬件调整
-  insertWg := sync.WaitGroup{}
-  insertWg.Add(insertWorkers)
-  for i := 0; i < insertWorkers; i++ {
-      go func(workerID int) {
-          defer insertWg.Done()
-          localBatch := make([]*models.KeyInfo, 0, s.config.Processing.BatchSize)
-          for keyInfo := range results {
-              localBatch = append(localBatch, keyInfo)
-              if len(localBatch) >= s.config.Processing.BatchSize {
-                  if err := s.repo.BatchCreateKeyInfo(localBatch); err != nil {
-                      logger.Logger.Errorf("Insert Worker %d failed to insert batch: %v", workerID, err)
-                  }
-                  localBatch = localBatch[:0]
-              }
-          }
-          // 插入任何剩余的batch
-          if len(localBatch) > 0 {
-              if err := s.repo.BatchCreateKeyInfo(localBatch); err != nil {
-                  logger.Logger.Errorf("Insert Worker %d failed to insert final batch: %v", workerID, err)
-              }
-          }
-      }(i)
-  }
+	// 启动多个插入Worker
+	insertWorkers := 4 // 根据您的数据库性能和硬件调整
+	insertWg := sync.WaitGroup{}
+	insertWg.Add(insertWorkers)
+	for i := 0; i < insertWorkers; i++ {
+		go func(workerID int) {
+			defer insertWg.Done()
+			localBatch := make([]*models.KeyInfo, 0, s.config.Processing.BatchSize)
+			for keyInfo := range results {
+				localBatch = append(localBatch, keyInfo)
+				if len(localBatch) >= s.config.Processing.BatchSize {
+					if err := s.repo.BatchCreateKeyInfo(localBatch); err != nil {
+						logger.Logger.Errorf("Insert Worker %d failed to insert batch: %v", workerID, err)
+					}
+					localBatch = localBatch[:0]
+				}
+			}
+			// 插入任何剩余的batch
+			if len(localBatch) > 0 {
+				if err := s.repo.BatchCreateKeyInfo(localBatch); err != nil {
+					logger.Logger.Errorf("Insert Worker %d failed to insert final batch: %v", workerID, err)
+				}
+			}
+		}(i)
+	}
 
-  // 等待所有 Workers 完成
-  wg.Wait()
-  close(results)
-  close(errorsChan)
+	// 等待所有 Workers 完成
+	wg.Wait()
+	close(results)
 
-  // 处理错误Chan（可以选择记录或采取其他措施）
-  for err := range errorsChan {
-      if err != nil {
-          logger.Logger.Warnf("Error during key generation: %v", err)
-      }
-  }
+	// 等待所有插入Workers完成
+	insertWg.Wait()
 
-  // 等待所有插入Workers完成
-  insertWg.Wait()
-
-  logger.Logger.Info("Key generation process completed.")
-  return nil
+	logger.Logger.Info("Key generation process completed.")
+	return nil
 }
 
 // worker 是优化后的 Worker Pool 的单个 Worker，负责生成和评分密钥
-func (s *Scorer) worker(id int, jobs <-chan struct{}, results chan<- *models.KeyInfo, errorsChan chan<- error, wg *sync.WaitGroup) {
-  defer wg.Done()
-  logger.Logger.Infof("Worker %d started.", id)
-  taskCount := 0
-  skippedCount := 0
-  for range jobs {
-      keyInfo, err := s.generateAndScoreKeyPair()
-      if err != nil {
-          errorsChan <- fmt.Errorf("worker %d: %w", id, err)
-          continue
-      }
-      if keyInfo != nil {
-          results <- keyInfo
-          taskCount++
-          if taskCount%1000 == 0 { // 每处理1000个任务记录一次日志
-              logger.Logger.Infof("Worker %d has processed %d tasks.", id, taskCount)
-          }
-      } else {
-          skippedCount++
-      }
-  }
-  logger.Logger.Infof("Worker %d stopped after processing %d tasks and skipping %d keys.", id, taskCount, skippedCount)
+func (s *Scorer) worker(id int, jobs <-chan struct{}, results chan<- *models.KeyInfo, wg *sync.WaitGroup) {
+	defer wg.Done()
+	logger.Logger.Infof("Worker %d started.", id)
+	for range jobs {
+		keyInfo, err := s.generateAndScoreKeyPair()
+		if keyInfo != nil {
+			if err == nil {
+				results <- keyInfo
+			}
+		}
+	}
+	logger.Logger.Infof("Worker %d finished working.", id)
 }
 
 // generateAndScoreKeyPair 生成单个密钥对并计算其分数
@@ -166,7 +147,6 @@ func (s *Scorer) generateAndScoreKeyPair() (*models.KeyInfo, error) {
 
 	// 修改此处：不符合标准时返回 (nil, nil) 而不是错误
 	if totalScore <= cfg.MinScore && scores.UniqueLettersCount >= cfg.MaxLettersCount {
-		// logger.Logger.Debugf("Key %s does not meet criteria (Score: %d, UniqueLettersCount: %d). Skipping.", fingerprint, totalScore, scores.UniqueLettersCount)
 		return nil, nil
 	}
 
