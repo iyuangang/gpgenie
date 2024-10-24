@@ -2,6 +2,7 @@ package repository
 
 import (
 	"math"
+	"strings"
 
 	"gpgenie/internal/key/models"
 
@@ -80,7 +81,7 @@ func (r *keyRepository) GetLowLetterCountKeys(limit int) ([]models.KeyInfo, erro
 // GetKeyByFingerprint 通过指纹的后16位获取 KeyInfo
 func (r *keyRepository) GetKeyByFingerprint(lastSixteen string) (*models.KeyInfo, error) {
 	var keyInfo models.KeyInfo
-	err := r.db.Where("fingerprint LIKE ?", "%"+lastSixteen).First(&keyInfo).Error
+	err := r.db.Where("fingerprint LIKE ?", "%"+strings.ToLower(lastSixteen)).First(&keyInfo).Error
 	if err != nil {
 		return nil, err
 	}

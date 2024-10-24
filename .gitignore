@@ -31,3 +31,5 @@ config.json
 
 # key file
 *.asc
+*.gpg
+*.pgp

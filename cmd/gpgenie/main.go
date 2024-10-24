@@ -73,6 +73,7 @@ func handleCommands(scorer *key.Scorer, repo repository.KeyRepository) error {
 	showTopKeys := flag.Int("show-top", 0, "Show top N keys by score")
 	showLowLetterCount := flag.Int("show-low-letter", 0, "Show N keys with lowest letter count")
 	exportByFingerprint := flag.String("export-by-fingerprint", "", "Export key by last 16 characters of fingerprint")
+	exportArmor := flag.Bool("armor", false, "Export the key in ASCII Armor format without decoding")
 	outputDir := flag.String("output-dir", ".", "Output directory for exported keys")
 	analysis := flag.Bool("analysis", false, "Analyze stored key data")
 
@@ -91,7 +92,7 @@ func handleCommands(scorer *key.Scorer, repo repository.KeyRepository) error {
 		return scorer.ShowLowLetterCountKeys(*showLowLetterCount)
 	case *exportByFingerprint != "":
 		logger.Logger.Infof("Exporting key with fingerprint ending %s...", *exportByFingerprint)
-		return scorer.ExportKeyByFingerprint(*exportByFingerprint, *outputDir)
+		return scorer.ExportKeyByFingerprint(*exportByFingerprint, *outputDir, *exportArmor)
 	case *analysis:
 		logger.Logger.Info("Starting data analysis...")
 		return analyzeData(repo)

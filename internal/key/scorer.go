@@ -1,8 +1,9 @@
 package key
 
 import (
-	"encoding/base64"
+	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,8 @@ import (
 	"gpgenie/internal/key/models"
 	"gpgenie/internal/logger"
 	"gpgenie/internal/repository"
+
+	"github.com/ProtonMail/go-crypto/openpgp/armor"
 )
 
 type Scorer struct {
@@ -170,27 +173,41 @@ func (s *Scorer) generateAndScoreKeyPair() (*models.KeyInfo, error) {
 }
 
 // ExportKeyByFingerprint 根据指纹的后16位导出密钥到文件
-func (s *Scorer) ExportKeyByFingerprint(lastSixteen string, outputDir string) error {
+func (s *Scorer) ExportKeyByFingerprint(lastSixteen string, outputDir string, exportArmor bool) error {
 	keyInfo, err := s.repo.GetKeyByFingerprint(lastSixteen)
 	if err != nil {
 		return fmt.Errorf("failed to find key: %w", err)
 	}
 
-	// 解码私钥
-	decodedPrivateKey, err := base64.StdEncoding.DecodeString(keyInfo.PrivateKey)
-	if err != nil {
-		return fmt.Errorf("failed to decode private key: %w", err)
-	}
-
-	// 确保输出目录存在
+	// Ensure the output directory exists
 	if err := os.MkdirAll(outputDir, os.ModePerm); err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
-	// 创建输出文件
 	outputFile := filepath.Join(outputDir, keyInfo.Fingerprint+".gpg")
-	if err := os.WriteFile(outputFile, decodedPrivateKey, 0o600); err != nil {
-		return fmt.Errorf("failed to write encrypted private key to file: %w", err)
+
+	if exportArmor {
+		// Directly export the ASCII Armor-encoded private key
+		if err := os.WriteFile(outputFile, []byte(keyInfo.PrivateKey), 0o600); err != nil {
+			return fmt.Errorf("failed to write ASCII Armor private key to file: %w", err)
+		}
+	} else {
+		// Decode ASCII Armor-encoded private key before exporting
+		block, err := armor.Decode(strings.NewReader(keyInfo.PrivateKey))
+		if err != nil {
+			return fmt.Errorf("failed to decode ASCII Armor private key: %w", err)
+		}
+
+		var buf bytes.Buffer
+		_, err = io.Copy(&buf, block.Body)
+		if err != nil {
+			return fmt.Errorf("failed to read decoded private key: %w", err)
+		}
+		decodedPrivateKey := buf.Bytes()
+
+		if err := os.WriteFile(outputFile, decodedPrivateKey, 0o600); err != nil {
+			return fmt.Errorf("failed to write decoded private key to file: %w", err)
+		}
 	}
 
 	logger.Logger.Infof("Successfully exported key to %s", outputFile)
