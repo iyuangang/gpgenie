@@ -30,7 +30,9 @@ func run() error {
 	}
 
 	// Initialize Logger and defer syncing
-	logger.InitLogger(cfg)
+	if err := logger.InitLogger(cfg); err != nil {
+		return fmt.Errorf("failed to initialize logger: %w", err)
+	}
 	defer logger.SyncLogger()
 
 	// Connect to the database
@@ -58,7 +60,7 @@ func run() error {
 	}
 
 	// Handle commands using Viper configuration
-	if err := handleCommands(scorer, repo); err != nil {
+	if err := handleCommands(scorer); err != nil {
 		logger.Logger.Errorf("Command handling error: %v", err)
 		return err
 	}
@@ -106,7 +108,7 @@ func loadConfig() (*config.Config, error) {
 	return &cfg, nil
 }
 
-func handleCommands(scorer *key.Scorer, repo repository.KeyRepository) error {
+func handleCommands(scorer *key.Scorer) error {
 	// Retrieve flag values from Viper
 	generateKeys := viper.GetBool("generate-keys")
 	showTopKeys := viper.GetInt("show-top")
@@ -131,14 +133,9 @@ func handleCommands(scorer *key.Scorer, repo repository.KeyRepository) error {
 		return scorer.ExportKeyByFingerprint(exportByFingerprint, outputDir, exportArmor)
 	case analysis:
 		logger.Logger.Info("Starting data analysis...")
-		return analyzeData(repo)
+		return scorer.AnalyzeData()
 	default:
 		pflag.Usage()
 		return nil
 	}
-}
-
-func analyzeData(repo repository.KeyRepository) error {
-	analyzer := key.NewAnalyzer(repo)
-	return analyzer.PerformAnalysis()
 }

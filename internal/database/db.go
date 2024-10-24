@@ -30,11 +30,11 @@ func Connect(cfg config.Config) (*gorm.DB, error) {
 	// Configure GORM logger
 	var gormLogger logger.Interface
 	switch cfg.Logging.LogLevel {
-	case "info":
+	case "debug":
 		gormLogger = logger.Default.LogMode(logger.Info)
-	case "warn":
+	case "info":
 		gormLogger = logger.Default.LogMode(logger.Warn)
-	case "error":
+	case "warn":
 		gormLogger = logger.Default.LogMode(logger.Error)
 	default:
 		gormLogger = logger.Default.LogMode(logger.Silent)

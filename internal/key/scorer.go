@@ -92,11 +92,15 @@ func (s *Scorer) GenerateKeys() error {
 		go func(workerID int) {
 			defer insertWg.Done()
 			localBatch := make([]*models.KeyInfo, 0, s.config.Processing.BatchSize)
+			insertedCount := 0
 			for keyInfo := range results {
 				localBatch = append(localBatch, keyInfo)
 				if len(localBatch) >= s.config.Processing.BatchSize {
 					if err := s.repo.BatchCreateKeyInfo(localBatch); err != nil {
 						logger.Logger.Errorf("Insert Worker %d failed to insert batch: %v", workerID, err)
+					} else {
+						insertedCount += len(localBatch)
+						logger.Logger.Infof("Inserted a batch of %d keys. Total inserted: %d", len(localBatch), insertedCount)
 					}
 					localBatch = localBatch[:0]
 				}
@@ -105,6 +109,9 @@ func (s *Scorer) GenerateKeys() error {
 			if len(localBatch) > 0 {
 				if err := s.repo.BatchCreateKeyInfo(localBatch); err != nil {
 					logger.Logger.Errorf("Insert Worker %d failed to insert final batch: %v", workerID, err)
+				} else {
+					insertedCount += len(localBatch)
+					logger.Logger.Infof("Inserted the final batch of %d keys. Total inserted: %d", len(localBatch), insertedCount)
 				}
 			}
 		}(i)
@@ -244,4 +251,9 @@ func displayKeys(keys []models.KeyInfo) {
 		shortFingerprint := strings.ToUpper(key.Fingerprint[len(key.Fingerprint)-16:])
 		fmt.Printf("%-16s %6d %13d\n", shortFingerprint, key.Score, key.UniqueLettersCount)
 	}
+}
+
+func (s *Scorer) AnalyzeData() error {
+	analyzer := NewAnalyzer(s.repo)
+	return analyzer.PerformAnalysis()
 }
