@@ -1,27 +1,20 @@
-package key
+package domain
 
 import (
 	"fmt"
-	"math"
 
 	"gpgenie/internal/repository"
 )
 
-// Analyzer 负责执行数据分析
 type Analyzer struct {
 	repo repository.KeyRepository
 }
 
-// NewAnalyzer 创建一个新的 Analyzer 实例
 func NewAnalyzer(repo repository.KeyRepository) *Analyzer {
-	return &Analyzer{
-		repo: repo,
-	}
+	return &Analyzer{repo: repo}
 }
 
-// PerformAnalysis 执行多维度的数据分析
 func (a *Analyzer) PerformAnalysis() error {
-	// 执行各项分析
 	if err := a.analyzeScores(); err != nil {
 		return err
 	}
@@ -35,14 +28,11 @@ func (a *Analyzer) PerformAnalysis() error {
 		return err
 	}
 
-	// 可以在此添加更多的分析维度
-
 	return nil
 }
 
-// analyzeScores 分析 Score 的分布情况
 func (a *Analyzer) analyzeScores() error {
-	stats, err := a.repo.GetScoreStatistics()
+	stats, err := a.repo.GetScoreStats()
 	if err != nil {
 		return fmt.Errorf("failed to get score statistics: %w", err)
 	}
@@ -56,9 +46,8 @@ func (a *Analyzer) analyzeScores() error {
 	return nil
 }
 
-// analyzeUniqueLettersCount 分析 UniqueLettersCount 的分布情况
 func (a *Analyzer) analyzeUniqueLettersCount() error {
-	stats, err := a.repo.GetUniqueLettersStatistics()
+	stats, err := a.repo.GetUniqueLettersStats()
 	if err != nil {
 		return fmt.Errorf("failed to get unique letters count statistics: %w", err)
 	}
@@ -72,9 +61,8 @@ func (a *Analyzer) analyzeUniqueLettersCount() error {
 	return nil
 }
 
-// analyzeScoreComponents 分析各个分数组成的情况
 func (a *Analyzer) analyzeScoreComponents() error {
-	stats, err := a.repo.GetScoreComponentsStatistics()
+	stats, err := a.repo.GetScoreComponentsStats()
 	if err != nil {
 		return fmt.Errorf("failed to get score components statistics: %w", err)
 	}
@@ -88,7 +76,6 @@ func (a *Analyzer) analyzeScoreComponents() error {
 	return nil
 }
 
-// analyzeCorrelation 分析 Score 与 UniqueLettersCount 的相关性
 func (a *Analyzer) analyzeCorrelation() error {
 	correlation, err := a.repo.GetCorrelationCoefficient()
 	if err != nil {
@@ -98,9 +85,9 @@ func (a *Analyzer) analyzeCorrelation() error {
 	fmt.Println("=== Correlation Analysis ===")
 	fmt.Printf("Pearson Correlation Coefficient between Score and Unique Letters Count: %.4f\n", correlation)
 	switch {
-	case math.Abs(correlation) > 0.7:
+	case correlation > 0.7 || correlation < -0.7:
 		fmt.Println("Interpretation: Strong correlation detected.")
-	case math.Abs(correlation) > 0.4:
+	case correlation > 0.4 || correlation < -0.4:
 		fmt.Println("Interpretation: Moderate correlation detected.")
 	default:
 		fmt.Println("Interpretation: Weak or no correlation detected.")

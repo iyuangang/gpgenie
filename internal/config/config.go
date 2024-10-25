@@ -9,7 +9,6 @@ import (
 type Config struct {
 	Environment   string              `mapstructure:"environment"`
 	Database      DatabaseConfig      `mapstructure:"database"`
-	Processing    ProcessingConfig    `mapstructure:"processing"`
 	KeyGeneration KeyGenerationConfig `mapstructure:"key_generation"`
 	KeyEncryption KeyEncryptionConfig `mapstructure:"key_encryption"`
 	Logging       LoggingConfig       `mapstructure:"logging"`
@@ -30,11 +29,7 @@ type DatabaseConfig struct {
 	MaxOpenConns    int    `mapstructure:"max_open_conns"`
 	MaxIdleConns    int    `mapstructure:"max_idle_conns"`
 	ConnMaxLifetime int    `mapstructure:"conn_max_lifetime"`
-}
-
-type ProcessingConfig struct {
-	BatchSize          int `mapstructure:"batch_size"`
-	MaxConcurrentFiles int `mapstructure:"max_concurrent_files"`
+	LogLevel        string `mapstructure:"log_level"`
 }
 
 type KeyGenerationConfig struct {
@@ -42,6 +37,7 @@ type KeyGenerationConfig struct {
 	NumWorkers      int    `mapstructure:"num_workers"`
 	MinScore        int    `mapstructure:"min_score"`
 	MaxLettersCount int    `mapstructure:"max_letters_count"`
+	BatchSize       int    `mapstructure:"batch_size"`
 	Name            string `mapstructure:"name"`
 	Comment         string `mapstructure:"comment"`
 	Email           string `mapstructure:"email"`

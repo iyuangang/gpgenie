@@ -12,24 +12,27 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-// Connect establishes a database connection using GORM
-func Connect(cfg config.Config) (*gorm.DB, error) {
+type DB struct {
+	*gorm.DB
+}
+
+func Connect(cfg config.DatabaseConfig) (*DB, error) {
 	var dialector gorm.Dialector
 
-	switch cfg.Database.Type {
+	switch cfg.Type {
 	case "postgres":
 		dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
-			cfg.Database.Host, cfg.Database.Port, cfg.Database.User, cfg.Database.Password, cfg.Database.DBName)
+			cfg.Host, cfg.Port, cfg.User, cfg.Password, cfg.DBName)
 		dialector = postgres.Open(dsn)
 	case "sqlite":
-		dialector = sqlite.Open(cfg.Database.DBName)
+		dialector = sqlite.Open(cfg.DBName)
 	default:
-		return nil, fmt.Errorf("unsupported database type: %s", cfg.Database.Type)
+		return nil, fmt.Errorf("unsupported database type: %s", cfg.Type)
 	}
 
-	// Configure GORM logger
+	// 配置 GORM 日志
 	var gormLogger logger.Interface
-	switch cfg.Logging.LogLevel {
+	switch cfg.LogLevel {
 	case "debug":
 		gormLogger = logger.Default.LogMode(logger.Info)
 	case "info":
@@ -40,7 +43,7 @@ func Connect(cfg config.Config) (*gorm.DB, error) {
 		gormLogger = logger.Default.LogMode(logger.Silent)
 	}
 
-	// Initialize GORM DB
+	// 初始化 GORM DB
 	db, err := gorm.Open(dialector, &gorm.Config{
 		Logger:      gormLogger,
 		QueryFields: true,
@@ -49,29 +52,28 @@ func Connect(cfg config.Config) (*gorm.DB, error) {
 		return nil, fmt.Errorf("failed to connect to database with GORM: %w", err)
 	}
 
-	// Get generic database object sql.DB for low-level operations
+	// 获取 sql.DB 对象用于低级操作
 	sqlDB, err := db.DB()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get generic database object: %w", err)
 	}
 
-	// Set connection pool parameters
-	sqlDB.SetMaxOpenConns(cfg.Database.MaxOpenConns)
-	sqlDB.SetMaxIdleConns(cfg.Database.MaxIdleConns)
-	sqlDB.SetConnMaxLifetime(time.Duration(cfg.Database.ConnMaxLifetime) * time.Second)
+	// 设置连接池参数
+	sqlDB.SetMaxOpenConns(cfg.MaxOpenConns)
+	sqlDB.SetMaxIdleConns(cfg.MaxIdleConns)
+	sqlDB.SetConnMaxLifetime(time.Duration(cfg.ConnMaxLifetime) * time.Second)
 
-	// Verify connection
+	// 验证连接
 	if err = sqlDB.Ping(); err != nil {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
-	return db, nil
+	return &DB{DB: db}, nil
 }
 
-// CloseDB properly closes the database connection
-func CloseDB(db *gorm.DB) error {
+func (db *DB) Close() error {
 	if db != nil {
-		sqlDB, err := db.DB()
+		sqlDB, err := db.DB.DB()
 		if err != nil {
 			return fmt.Errorf("failed to get generic database object: %w", err)
 		}

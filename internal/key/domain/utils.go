@@ -1,4 +1,4 @@
-package key
+package domain
 
 func isIncreasing(a, b byte) bool {
 	return (a == '9' && b == 'A') || (a == 'F' && b == '0') || int(b) == int(a)+1

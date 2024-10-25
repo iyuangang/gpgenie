@@ -4,7 +4,7 @@ import (
 	"math"
 	"strings"
 
-	"gpgenie/internal/key/models"
+	"gpgenie/models"
 
 	"gorm.io/gorm"
 )
@@ -12,47 +12,42 @@ import (
 // KeyRepository 定义了与 KeyInfo 相关的数据库操作
 type KeyRepository interface {
 	AutoMigrate() error
-	BatchCreateKeyInfo(keys []*models.KeyInfo) error
+	BatchCreate(keys []*models.KeyInfo) error
 	GetTopKeys(limit int) ([]models.KeyInfo, error)
 	GetLowLetterCountKeys(limit int) ([]models.KeyInfo, error)
-	GetKeyByFingerprint(lastSixteen string) (*models.KeyInfo, error)
-	GetAllKeys() ([]models.KeyInfo, error) // 获取所有 KeyInfo
-	GetScoreStatistics() (*ScoreStats, error)
-	GetUniqueLettersStatistics() (*UniqueLettersStats, error)
-	GetScoreComponentsStatistics() (*ScoreComponentsStats, error)
+	GetByFingerprint(lastSixteen string) (*models.KeyInfo, error)
+	GetAll() ([]models.KeyInfo, error)
+	// 统计方法
+	GetScoreStats() (*ScoreStats, error)
+	GetUniqueLettersStats() (*UniqueLettersStats, error)
+	GetScoreComponentsStats() (*ScoreComponentsStats, error)
 	GetCorrelationCoefficient() (float64, error)
 }
 
-type ShowKeyInfo struct {
-	Fingerprint        string
-	Score              int
-	UniqueLettersCount int
-}
-
-// ScoreStats 用于存储分数的统计数据
+// ScoreStats 用于存储分数统计数据
 type ScoreStats struct {
-	Average float64
-	Min     float64
-	Max     float64
-	Total   int64
-	Count   int64
+	Average float64 `gorm:"column:average"`
+	Min     float64 `gorm:"column:min"`
+	Max     float64 `gorm:"column:max"`
+	Total   float64 `gorm:"column:total"`
+	Count   int64   `gorm:"column:count"`
 }
 
-// UniqueLettersStats 用于存储唯一字母计数的统计数据
+// UniqueLettersStats 用于存储唯一字母统计数据
 type UniqueLettersStats struct {
-	Average float64
-	Min     float64
-	Max     float64
-	Total   int64
-	Count   int64
+	Average float64 `gorm:"column:average"`
+	Min     float64 `gorm:"column:min"`
+	Max     float64 `gorm:"column:max"`
+	Total   float64 `gorm:"column:total"`
+	Count   int64   `gorm:"column:count"`
 }
 
-// ScoreComponentsStats 用于存储分数组件的统计数据
+// ScoreComponentsStats 用于存储分数组件统计数据
 type ScoreComponentsStats struct {
-	AverageRepeat     float64
-	AverageIncreasing float64
-	AverageDecreasing float64
-	AverageMagic      float64
+	AverageRepeat     float64 `gorm:"column:average_repeat"`
+	AverageIncreasing float64 `gorm:"column:average_increasing"`
+	AverageDecreasing float64 `gorm:"column:average_decreasing"`
+	AverageMagic      float64 `gorm:"column:average_magic"`
 }
 
 // keyRepository 是 KeyRepository 的具体实现
@@ -65,32 +60,27 @@ func NewKeyRepository(db *gorm.DB) KeyRepository {
 	return &keyRepository{db: db}
 }
 
-// AutoMigrate 自动迁移数据库表
 func (r *keyRepository) AutoMigrate() error {
 	return r.db.AutoMigrate(&models.KeyInfo{})
 }
 
-// BatchCreateKeyInfo 批量插入 KeyInfo
-func (r *keyRepository) BatchCreateKeyInfo(keys []*models.KeyInfo) error {
+func (r *keyRepository) BatchCreate(keys []*models.KeyInfo) error {
 	return r.db.Create(keys).Error
 }
 
-// GetTopKeys 获取评分最高的前 N 个 Key
 func (r *keyRepository) GetTopKeys(limit int) ([]models.KeyInfo, error) {
 	var keys []models.KeyInfo
 	err := r.db.Order("score DESC, unique_letters_count ASC").Limit(limit).Find(&keys).Error
 	return keys, err
 }
 
-// GetLowLetterCountKeys 获取字母计数最低的前 N 个 Key
 func (r *keyRepository) GetLowLetterCountKeys(limit int) ([]models.KeyInfo, error) {
 	var keys []models.KeyInfo
 	err := r.db.Order("unique_letters_count ASC, score DESC").Limit(limit).Find(&keys).Error
 	return keys, err
 }
 
-// GetKeyByFingerprint 通过指纹的后16位获取 KeyInfo
-func (r *keyRepository) GetKeyByFingerprint(lastSixteen string) (*models.KeyInfo, error) {
+func (r *keyRepository) GetByFingerprint(lastSixteen string) (*models.KeyInfo, error) {
 	var keyInfo models.KeyInfo
 	err := r.db.Where("fingerprint LIKE ?", "%"+strings.ToLower(lastSixteen)).First(&keyInfo).Error
 	if err != nil {
@@ -99,15 +89,13 @@ func (r *keyRepository) GetKeyByFingerprint(lastSixteen string) (*models.KeyInfo
 	return &keyInfo, nil
 }
 
-// GetAllKeys 获取数据库中所有的 KeyInfo
-func (r *keyRepository) GetAllKeys() ([]models.KeyInfo, error) {
+func (r *keyRepository) GetAll() ([]models.KeyInfo, error) {
 	var keys []models.KeyInfo
 	err := r.db.Find(&keys).Error
 	return keys, err
 }
 
-// GetScoreStatistics 获取 Score 的统计数据
-func (r *keyRepository) GetScoreStatistics() (*ScoreStats, error) {
+func (r *keyRepository) GetScoreStats() (*ScoreStats, error) {
 	var stats ScoreStats
 	err := r.db.Model(&models.KeyInfo{}).
 		Select("AVG(score) as average, MIN(score) as min, MAX(score) as max, SUM(score) as total, COUNT(score) as count").
@@ -118,8 +106,7 @@ func (r *keyRepository) GetScoreStatistics() (*ScoreStats, error) {
 	return &stats, nil
 }
 
-// GetUniqueLettersStatistics 获取 UniqueLettersCount 的统计数据
-func (r *keyRepository) GetUniqueLettersStatistics() (*UniqueLettersStats, error) {
+func (r *keyRepository) GetUniqueLettersStats() (*UniqueLettersStats, error) {
 	var stats UniqueLettersStats
 	err := r.db.Model(&models.KeyInfo{}).
 		Select("AVG(unique_letters_count) as average, MIN(unique_letters_count) as min, MAX(unique_letters_count) as max, SUM(unique_letters_count) as total, COUNT(unique_letters_count) as count").
@@ -130,8 +117,7 @@ func (r *keyRepository) GetUniqueLettersStatistics() (*UniqueLettersStats, error
 	return &stats, nil
 }
 
-// GetScoreComponentsStatistics 获取分数组件的统计数据
-func (r *keyRepository) GetScoreComponentsStatistics() (*ScoreComponentsStats, error) {
+func (r *keyRepository) GetScoreComponentsStats() (*ScoreComponentsStats, error) {
 	var stats ScoreComponentsStats
 	err := r.db.Model(&models.KeyInfo{}).
 		Select("AVG(repeat_letter_score) as average_repeat, AVG(increasing_letter_score) as average_increasing, AVG(decreasing_letter_score) as average_decreasing, AVG(magic_letter_score) as average_magic").
@@ -142,7 +128,6 @@ func (r *keyRepository) GetScoreComponentsStatistics() (*ScoreComponentsStats, e
 	return &stats, nil
 }
 
-// GetCorrelationCoefficient 计算 Score 与 UniqueLettersCount 之间的 Pearson 相关系数
 func (r *keyRepository) GetCorrelationCoefficient() (float64, error) {
 	var sumX, sumY, sumXY, sumX2, sumY2 float64
 	var count int64
