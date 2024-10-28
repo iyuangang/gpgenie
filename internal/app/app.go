@@ -5,7 +5,6 @@ import (
 
 	"gpgenie/internal/config"
 	"gpgenie/internal/database"
-	"gpgenie/internal/key/domain"
 	"gpgenie/internal/key/service"
 	"gpgenie/internal/logger"
 	"gpgenie/internal/repository"
@@ -43,20 +42,8 @@ func NewApp(configPath string) (*App, error) {
 	// 初始化仓储
 	repo := repository.NewKeyRepository(db.DB)
 
-	// 初始化 Encryptor
-	var encryptor domain.Encryptor
-	if cfg.KeyEncryption.PublicKeyPath != "" {
-		pgpEncryptor, err := service.NewPGPEncryptor(cfg.KeyEncryption.PublicKeyPath)
-		if err != nil {
-			log.Errorf("初始化 Encryptor 失败: %v", err)
-			return nil, fmt.Errorf("初始化 Encryptor 失败: %w", err)
-		}
-		encryptor = pgpEncryptor
-		log.Debug("加密公钥加载成功。")
-	}
-
 	// 初始化 KeyService，并注入 Encryptor
-	keyService := service.NewKeyService(repo, cfg.KeyGeneration, encryptor, log)
+	keyService := service.NewKeyService(repo, cfg.KeyGeneration, nil, log)
 
 	return &App{
 		Config:     cfg,

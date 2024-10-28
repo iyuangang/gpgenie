@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"gpgenie/internal/config"
+	"gpgenie/models"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
@@ -50,6 +51,10 @@ func Connect(cfg config.DatabaseConfig) (*DB, error) {
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database with GORM: %w", err)
+	}
+
+	if err := db.AutoMigrate(&models.KeyInfo{}); err != nil {
+		return nil, fmt.Errorf("failed to migrate database: %w", err)
 	}
 
 	// 获取 sql.DB 对象用于低级操作

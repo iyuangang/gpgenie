@@ -56,11 +56,16 @@ func (s *keyService) GenerateKeys() error {
 		s.logger.Debugf("Worker %d 启动。", i)
 	}
 
-	// 启动一个 goroutine 来关闭 results 通道
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
+	// 加载 Encryptor，仅在 GenerateKeys 时加载
+	encryptorPublicKey := s.config.EncryptorPublicKey
+	if encryptorPublicKey != "" {
+		var err error
+		s.encryptor, err = NewPGPEncryptor(encryptorPublicKey)
+		if err != nil {
+			s.logger.Errorf("加载公钥失败: %v", err)
+			return fmt.Errorf("加载公钥失败: %w", err)
+		}
+	}
 
 	insertWg := sync.WaitGroup{}
 	insertWg.Add(1)

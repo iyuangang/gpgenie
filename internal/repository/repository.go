@@ -11,7 +11,6 @@ import (
 
 // KeyRepository 定义了与 KeyInfo 相关的数据库操作
 type KeyRepository interface {
-	AutoMigrate() error
 	BatchCreate(keys []*models.KeyInfo) error
 	GetTopKeys(limit int) ([]models.KeyInfo, error)
 	GetLowLetterCountKeys(limit int) ([]models.KeyInfo, error)
@@ -58,10 +57,6 @@ type keyRepository struct {
 // NewKeyRepository 创建一个新的 KeyRepository 实例
 func NewKeyRepository(db *gorm.DB) KeyRepository {
 	return &keyRepository{db: db}
-}
-
-func (r *keyRepository) AutoMigrate() error {
-	return r.db.AutoMigrate(&models.KeyInfo{})
 }
 
 func (r *keyRepository) BatchCreate(keys []*models.KeyInfo) error {

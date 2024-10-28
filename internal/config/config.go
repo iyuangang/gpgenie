@@ -10,7 +10,6 @@ type Config struct {
 	Environment   string              `mapstructure:"environment"`
 	Database      DatabaseConfig      `mapstructure:"database"`
 	KeyGeneration KeyGenerationConfig `mapstructure:"key_generation"`
-	KeyEncryption KeyEncryptionConfig `mapstructure:"key_encryption"`
 	Logging       LoggingConfig       `mapstructure:"logging"`
 }
 
@@ -33,18 +32,15 @@ type DatabaseConfig struct {
 }
 
 type KeyGenerationConfig struct {
-	TotalKeys       int    `mapstructure:"total_keys"`
-	NumWorkers      int    `mapstructure:"num_workers"`
-	MinScore        int    `mapstructure:"min_score"`
-	MaxLettersCount int    `mapstructure:"max_letters_count"`
-	BatchSize       int    `mapstructure:"batch_size"`
-	Name            string `mapstructure:"name"`
-	Comment         string `mapstructure:"comment"`
-	Email           string `mapstructure:"email"`
-}
-
-type KeyEncryptionConfig struct {
-	PublicKeyPath string `mapstructure:"public_key_path"`
+	TotalKeys          int    `mapstructure:"total_keys"`
+	NumWorkers         int    `mapstructure:"num_workers"`
+	MinScore           int    `mapstructure:"min_score"`
+	MaxLettersCount    int    `mapstructure:"max_letters_count"`
+	BatchSize          int    `mapstructure:"batch_size"`
+	Name               string `mapstructure:"name"`
+	Comment            string `mapstructure:"comment"`
+	Email              string `mapstructure:"email"`
+	EncryptorPublicKey string `mapstructure:"encryptor_public_key"`
 }
 
 func Load(configPath string) (*Config, error) {

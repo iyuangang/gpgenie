@@ -16,10 +16,8 @@
     "max_letters_count": 5,
     "name": "Your Name",
     "comment": "Your Comment",
-    "email": "Your Email"
-  },
-  "key_encryption": {
-    "public_key_path": "path/to/user/public_key.asc"
+    "email": "Your Email",
+    "encryptor_public_key": "path/to/user/public_key.asc"
   },
   "logging": {
     "log_level": "warn",
