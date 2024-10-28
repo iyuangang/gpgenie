@@ -45,8 +45,8 @@ func (s *keyService) GenerateKeys(ctx context.Context) error {
 	workerCount := cfg.NumWorkers
 	jobCount := cfg.TotalKeys
 
-	jobs := make(chan struct{}, workerCount*1000)
-	results := make(chan *models.KeyInfo, cfg.BatchSize*2)
+	jobs := make(chan struct{}, workerCount*10000)
+	results := make(chan *models.KeyInfo, cfg.BatchSize*20)
 
 	var wg sync.WaitGroup
 

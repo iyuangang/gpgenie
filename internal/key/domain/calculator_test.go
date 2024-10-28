@@ -5,9 +5,9 @@ import (
 )
 
 func TestIsIncreasing(t *testing.T) {
-	tests := []struct{
-		a byte
-		b byte
+	tests := []struct {
+		a        byte
+		b        byte
 		expected bool
 	}{
 		{'0', '1', true},
@@ -30,9 +30,9 @@ func TestIsIncreasing(t *testing.T) {
 }
 
 func TestIsDecreasing(t *testing.T) {
-	tests := []struct{
-		a byte
-		b byte
+	tests := []struct {
+		a        byte
+		b        byte
 		expected bool
 	}{
 		{'1', '0', true},
@@ -56,7 +56,7 @@ func TestIsDecreasing(t *testing.T) {
 
 func TestCalculateScores(t *testing.T) {
 	tests := []struct {
-		input string
+		input    string
 		expected Scores
 	}{
 		{"8888888888888888", Scores{1024, 0, 0, 0, 1}},
@@ -66,14 +66,16 @@ func TestCalculateScores(t *testing.T) {
 		{"1929394959697989", Scores{0, 0, 0, -100, 9}},
 		{"FCEC7777789ABCDF", Scores{176, 224, 0, 0, 9}},
 		{"42E42EE22E4EE4E2", Scores{0, 0, 0, 0, 3}},
-
 	}
 
 	for _, test := range tests {
-		result := CalculateScores(test.input)
+		result, err := CalculateScores(test.input)
+		if err != nil {
+			t.Errorf("CalculateScores(%q) returned error: %v", test.input, err)
+			continue
+		}
 		if result != test.expected {
 			t.Errorf("CalculateScores(%q) = %v; want %v", test.input, result, test.expected)
 		}
 	}
-
 }

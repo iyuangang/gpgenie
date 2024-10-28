@@ -16,7 +16,10 @@ func GenerateAndScoreKeyPair(cfg config.KeyGenerationConfig, encryptor Encryptor
 
 	fingerprint := fmt.Sprintf("%x", entity.PrimaryKey.Fingerprint)
 	lastSixteen := fingerprint[len(fingerprint)-16:]
-	scores := CalculateScores(lastSixteen)
+	scores, err := CalculateScores(lastSixteen)
+	if err != nil {
+		return nil, fmt.Errorf("failed to calculate scores: %w", err)
+	}
 	totalScore := scores.RepeatLetterScore + scores.IncreasingLetterScore + scores.DecreasingLetterScore + scores.MagicLetterScore
 
 	// 不符合标准时返回 (nil, nil)
