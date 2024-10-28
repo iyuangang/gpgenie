@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -16,6 +17,7 @@ import (
 // MockRepository 是仓储的模拟实现
 type MockRepository struct {
 	mock.Mock
+	repository.KeyRepository
 }
 
 func (m *MockRepository) AutoMigrate() error {
@@ -125,9 +127,8 @@ func TestGenerateKeys(t *testing.T) {
 
 	// 初始化 KeyService
 	keyService := NewKeyService(mockRepo, cfg, mockEncryptor, nil)
-
 	// 执行 GenerateKeys
-	err := keyService.GenerateKeys()
+	err := keyService.GenerateKeys(context.Background())
 	assert.NoError(t, err)
 
 	// 验证 BatchCreate 被调用
@@ -165,7 +166,7 @@ func TestGenerateKeys_EncryptError(t *testing.T) {
 	keyService := NewKeyService(mockRepo, cfg, mockEncryptor, nil)
 
 	// 执行 GenerateKeys
-	err := keyService.GenerateKeys()
+	err := keyService.GenerateKeys(context.Background())
 	assert.NoError(t, err) // 根据业务逻辑，可能仍然成功但不插入
 
 	// 验证 BatchCreate 未被调用

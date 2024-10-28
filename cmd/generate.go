@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 
 	"gpgenie/internal/app"
@@ -29,7 +30,7 @@ var GenerateCmd = &cobra.Command{
 		appInstance.Config.KeyGeneration.TotalKeys = totalKeys
 		appInstance.Config.KeyGeneration.BatchSize = batchSize
 
-		if err := appInstance.KeyService.GenerateKeys(); err != nil {
+		if err := appInstance.KeyService.GenerateKeys(context.Background()); err != nil {
 			fmt.Printf("生成密钥失败: %v\n", err)
 			return
 		}

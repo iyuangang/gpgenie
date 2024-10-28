@@ -48,6 +48,7 @@ func Connect(cfg config.DatabaseConfig) (*DB, error) {
 	db, err := gorm.Open(dialector, &gorm.Config{
 		Logger:      gormLogger,
 		QueryFields: true,
+		PrepareStmt: true,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database with GORM: %w", err)
@@ -61,6 +62,13 @@ func Connect(cfg config.DatabaseConfig) (*DB, error) {
 	sqlDB, err := db.DB()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get generic database object: %w", err)
+	}
+
+	if cfg.Type == "sqlite" {
+		_, err = sqlDB.Exec("PRAGMA journal_mode=WAL")
+		if err != nil {
+			return nil, fmt.Errorf("failed to set WAL mode for SQLite: %w", err)
+		}
 	}
 
 	// 设置连接池参数

@@ -27,7 +27,7 @@ func NewApp(configPath string) (*App, error) {
 	}
 
 	// 初始化日志
-	log, err := logger.InitLogger(cfg.Logging)
+	log, err := logger.InitLogger(&cfg.Logging)
 	if err != nil {
 		return nil, fmt.Errorf("初始化日志失败: %w", err)
 	}

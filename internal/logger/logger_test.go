@@ -14,7 +14,7 @@ func TestInitLogger(t *testing.T) {
 		LogFile:  "logs/gpgenie.log",
 	}
 
-	log, err := InitLogger(cfg)
+	log, err := InitLogger(&cfg)
 	assert.NoError(t, err)
 	assert.NotNil(t, log)
 

@@ -21,6 +21,15 @@ type KeyRepository interface {
 	GetUniqueLettersStats() (*UniqueLettersStats, error)
 	GetScoreComponentsStats() (*ScoreComponentsStats, error)
 	GetCorrelationCoefficient() (float64, error)
+
+	BeginTransaction() RepositoryTransaction
+}
+
+// RepositoryTransaction 定义了事务操作
+type RepositoryTransaction interface {
+	BatchCreate(keys []*models.KeyInfo) error
+	Commit() error
+	Rollback() error
 }
 
 // ScoreStats 用于存储分数统计数据
@@ -57,6 +66,27 @@ type keyRepository struct {
 // NewKeyRepository 创建一个新的 KeyRepository 实例
 func NewKeyRepository(db *gorm.DB) KeyRepository {
 	return &keyRepository{db: db}
+}
+
+func (r *keyRepository) BeginTransaction() RepositoryTransaction {
+	tx := r.db.Begin()
+	return &repositoryTransaction{tx: tx}
+}
+
+type repositoryTransaction struct {
+	tx *gorm.DB
+}
+
+func (rt *repositoryTransaction) BatchCreate(keys []*models.KeyInfo) error {
+	return rt.tx.Create(keys).Error
+}
+
+func (rt *repositoryTransaction) Commit() error {
+	return rt.tx.Commit().Error
+}
+
+func (rt *repositoryTransaction) Rollback() error {
+	return rt.tx.Rollback().Error
 }
 
 func (r *keyRepository) BatchCreate(keys []*models.KeyInfo) error {
