@@ -2,80 +2,240 @@ package domain
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
+
+func TestCalculateScores(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected Scores
+	}{
+		{
+			name:  "repeated letters",
+			input: "AAAA123",
+			expected: Scores{
+				RepeatLetterScore:     128, // 4^1.5 * 16
+				IncreasingLetterScore: 0,
+				DecreasingLetterScore: 0,
+				MagicLetterScore:      0,
+				UniqueLettersCount:    4,
+			},
+		},
+		{
+			name:  "increasing sequence",
+			input: "0123456",
+			expected: Scores{
+				RepeatLetterScore:     0,
+				IncreasingLetterScore: 224, // 6^1.5 * 16
+				DecreasingLetterScore: 0,
+				MagicLetterScore:      0,
+				UniqueLettersCount:    7,
+			},
+		},
+		{
+			name:  "decreasing sequence",
+			input: "FEDCBA",
+			expected: Scores{
+				RepeatLetterScore:     0,
+				IncreasingLetterScore: 0,
+				DecreasingLetterScore: 176, // 5^1.5 * 16
+				MagicLetterScore:      0,
+				UniqueLettersCount:    6,
+			},
+		},
+		{
+			name:  "magic sequence",
+			input: "49ABCD",
+			expected: Scores{
+				RepeatLetterScore:     0,
+				IncreasingLetterScore: 128,
+				DecreasingLetterScore: 0,
+				MagicLetterScore:      -100,
+				UniqueLettersCount:    6,
+			},
+		},
+		{
+			name:  "mixed case",
+			input: "aAaA123",
+			expected: Scores{
+				RepeatLetterScore:     128, // 4^1.5 * 16
+				IncreasingLetterScore: 0,
+				DecreasingLetterScore: 0,
+				MagicLetterScore:      0,
+				UniqueLettersCount:    4,
+			},
+		},
+		{
+			name:  "circular increasing",
+			input: "FEDF012",
+			expected: Scores{
+				RepeatLetterScore:     0,
+				IncreasingLetterScore: 80,
+				DecreasingLetterScore: 0, // 4^1.5 * 16
+				MagicLetterScore:      0,
+				UniqueLettersCount:    6,
+			},
+		},
+		{
+			name:  "invalid characters",
+			input: "ABC!@#123",
+			expected: Scores{
+				RepeatLetterScore:     0,
+				IncreasingLetterScore: 0,
+				DecreasingLetterScore: 0,
+				MagicLetterScore:      0,
+				UniqueLettersCount:    6,
+			},
+		},
+		{
+			name:  "long repeated sequence",
+			input: "AAAAAAAAAAAAAAAA",
+			expected: Scores{
+				RepeatLetterScore:     1024, // 16^1.5 * 16 (capped at 16)
+				IncreasingLetterScore: 0,
+				DecreasingLetterScore: 0,
+				MagicLetterScore:      0,
+				UniqueLettersCount:    1,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			scores, err := CalculateScores(tt.input)
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expected, scores)
+		})
+	}
+}
+
+func TestCharToValue(t *testing.T) {
+	tests := []struct {
+		input    byte
+		expected int
+		valid    bool
+	}{
+		{'0', 0, true},
+		{'9', 9, true},
+		{'A', 10, true},
+		{'F', 15, true},
+		{'a', 10, true},
+		{'f', 15, true},
+		{'G', 0, false},
+		{'g', 0, false},
+		{'!', 0, false},
+		{byte(128), 0, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.input), func(t *testing.T) {
+			val, ok := charToValue(tt.input)
+			assert.Equal(t, tt.expected, val)
+			assert.Equal(t, tt.valid, ok)
+		})
+	}
+}
 
 func TestIsIncreasing(t *testing.T) {
 	tests := []struct {
-		a        byte
-		b        byte
+		a, b     byte
 		expected bool
 	}{
 		{'0', '1', true},
 		{'9', 'A', true},
-		{'F', '0', true},
-		{'A', 'B', true},
-		{'C', 'C', false},
-		{'F', '1', false},
-		{'g', 'h', false}, // 非法字符
-		{'5', '6', true},
-		{'E', 'F', true},
+		{'F', '0', true},  // circular
+		{'f', '0', true},  // lowercase
+		{'A', 'C', false}, // non-sequential
+		{'!', '1', false}, // invalid char
+		{'1', '!', false}, // invalid char
 	}
 
-	for _, test := range tests {
-		result := isIncreasing(test.a, test.b)
-		if result != test.expected {
-			t.Errorf("isIncreasing(%c, %c) = %v; want %v", test.a, test.b, result, test.expected)
-		}
+	for _, tt := range tests {
+		t.Run(string(tt.a)+string(tt.b), func(t *testing.T) {
+			result := isIncreasing(tt.a, tt.b)
+			assert.Equal(t, tt.expected, result)
+		})
 	}
 }
 
 func TestIsDecreasing(t *testing.T) {
 	tests := []struct {
-		a        byte
-		b        byte
+		a, b     byte
 		expected bool
 	}{
 		{'1', '0', true},
 		{'A', '9', true},
-		{'0', 'F', true},
-		{'B', 'A', true},
-		{'C', 'C', false},
-		{'0', '1', false},
-		{'g', 'f', false}, // 非法字符
-		{'6', '5', true},
-		{'F', 'E', true},
+		{'0', 'F', true},  // circular
+		{'0', 'f', true},  // lowercase
+		{'C', 'A', false}, // non-sequential
+		{'!', '1', false}, // invalid char
+		{'1', '!', false}, // invalid char
 	}
 
-	for _, test := range tests {
-		result := isDecreasing(test.a, test.b)
-		if result != test.expected {
-			t.Errorf("isDecreasing(%c, %c) = %v; want %v", test.a, test.b, result, test.expected)
+	for _, tt := range tests {
+		t.Run(string(tt.a)+string(tt.b), func(t *testing.T) {
+			result := isDecreasing(tt.a, tt.b)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// 基准测试
+func BenchmarkCalculateScores(b *testing.B) {
+	inputs := []string{
+		"0123456789ABCDEF", // 所有可能的字符
+		"AAAAAAAAAAAAAAAA", // 重复字符
+		"0123456789ABCDEF", // 递增序列
+		"FEDCBA9876543210", // 递减序列
+		"49ABCDEF01234567", // 包含魔法序列
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		for _, input := range inputs {
+			_, _ = CalculateScores(input)
 		}
 	}
 }
 
-func TestCalculateScores(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected Scores
-	}{
-		{"8888888888888888", Scores{1024, 0, 0, 0, 1}},
-		{"0123456789ABCDEF", Scores{0, 928, 0, 0, 16}},
-		{"FEDCBA9876543210", Scores{0, 0, 928, 0, 16}},
-		{"0123456666FEDCBA", Scores{128, 224, 176, 0, 13}},
-		{"1929394959697989", Scores{0, 0, 0, -100, 9}},
-		{"FCEC7777789ABCDF", Scores{176, 224, 0, 0, 9}},
-		{"42E42EE22E4EE4E2", Scores{0, 0, 0, 0, 3}},
-	}
-
-	for _, test := range tests {
-		result, err := CalculateScores(test.input)
-		if err != nil {
-			t.Errorf("CalculateScores(%q) returned error: %v", test.input, err)
-			continue
+func BenchmarkCharToValue(b *testing.B) {
+	chars := []byte{'0', '9', 'A', 'F', 'a', 'f', 'G', '!'}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		for _, c := range chars {
+			_, _ = charToValue(c)
 		}
-		if result != test.expected {
-			t.Errorf("CalculateScores(%q) = %v; want %v", test.input, result, test.expected)
+	}
+}
+
+func BenchmarkIsIncreasing(b *testing.B) {
+	pairs := [][2]byte{
+		{'0', '1'},
+		{'9', 'A'},
+		{'F', '0'},
+		{'A', 'C'},
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		for _, pair := range pairs {
+			isIncreasing(pair[0], pair[1])
+		}
+	}
+}
+
+func BenchmarkIsDecreasing(b *testing.B) {
+	pairs := [][2]byte{
+		{'1', '0'},
+		{'A', '9'},
+		{'0', 'F'},
+		{'C', 'A'},
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		for _, pair := range pairs {
+			isDecreasing(pair[0], pair[1])
 		}
 	}
 }
