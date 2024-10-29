@@ -1,0 +1,27 @@
+{
+  "database": {
+    "type": "sqlite",
+    "dbname": "../../test.db",
+    "max_open_conns": 1,
+    "max_idle_conns": 1,
+    "conn_max_lifetime": 300
+  },
+  "processing": {
+    "batch_size": 1000
+  },
+  "key_generation": {
+    "num_generator_workers": 5,
+    "num_scorer_workers": 1,
+    "total_keys": 1000,
+    "min_score": 20,
+    "max_letters_count": 5,
+    "name": "Your Name",
+    "comment": "Your Comment",
+    "email": "Your Email",
+    "encryptor_public_key": "../../public_key.asc"
+  },
+  "logging": {
+    "log_level": "warn",
+    "log_file": "../../test.log"
+  }
+}

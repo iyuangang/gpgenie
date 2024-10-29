@@ -151,7 +151,18 @@ go mod download
 
 3. Run tests
 ```bash
-go test ./...
+# all tests
+go test ./... -v
+
+# single package tests
+go test ./internal/key/domain -v
+
+# integration tests
+go test ./tests/integration -v
+
+# generate test coverage report
+go test ./... -coverprofile=coverage
+go tool cover -html=coverage
 ```
 
 4. Build
