@@ -1,49 +1,40 @@
-# Stage 1: Build the application
-FROM golang:1.20-alpine AS builder
+# 构建阶段
+FROM golang:1.22-alpine AS builder
 
-# Install git (required for Go modules)
-RUN apk update && apk add --no-cache git
+ARG VERSION
+ARG COMMIT
 
-# Set working directory
+# 安装 git 和 ca-certificates (需要 git 来获取私有依赖，如果有的话)
+RUN apk add --no-cache git ca-certificates tzdata && update-ca-certificates
+
+# 设置工作目录
 WORKDIR /app
 
-# Cache dependencies
+# 复制 go mod 和 sum 文件
 COPY go.mod go.sum ./
+
+# 下载依赖
 RUN go mod download
 
-# Copy the source code
-COPY ./ ./
+# 复制源代码
+COPY . .
 
-# Build the application
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o gpgenie ./cmd/gpgenie
+# 构建应用
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s -X main.Version=${VERSION} -X main.Commit=${COMMIT}" -a -installsuffix cgo -o gpgenie ./cmd/gpgenie
 
-# Stage 2: Create the final image
-FROM alpine:latest
+# 最终阶段
+FROM scratch
 
-# Install necessary certificates (if using HTTPS with database or APIs)
-RUN apk --no-cache add ca-certificates
+# 从 builder 阶段复制 ca-certificates
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
+ENV TZ=Asia/Shanghai
 
-# Create a non-root user
-RUN addgroup -S gpgenie && adduser -S gpgenie -G gpgenie
+WORKDIR /root/
 
-# Set working directory
-WORKDIR /app
-
-# Copy the built binary from the builder
+# 从构建器阶段复制二进制文件
 COPY --from=builder /app/gpgenie .
+COPY --from=builder /app/config/config.sqlite.json ./config/config.json
 
-# Copy configuration files (ensure you mount them via volumes or use environment variables)
-# Alternatively, you can copy a default config here
-# COPY ./config /app/config
-
-# Change ownership to non-root user
-RUN chown gpgenie:gpgenie gpgenie
-
-# Switch to non-root user
-USER gpgenie
-
-# Expose any necessary ports (if applicable)
-# EXPOSE 8080
-
-# Command to run the executable
-ENTRYPOINT ["./gpgenie"]
+# 运行
+CMD ["./gpgenie"]
