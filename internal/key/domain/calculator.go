@@ -139,12 +139,6 @@ func CalculateScores(line string) (Scores, error) {
 						if score > repeatScore {
 							repeatScore = score
 						}
-					} else {
-						// 超出预计算范围，使用动态计算
-						score := int(math.Pow(float64(currentSequenceRepeat), 1.5)) * length
-						if score > repeatScore {
-							repeatScore = score
-						}
 					}
 				}
 				currentSequenceRepeat = 1

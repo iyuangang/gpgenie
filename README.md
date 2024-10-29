@@ -1,9 +1,9 @@
 # GPGenie
 
-[![Go Test and Coverage](https://github.com/yourusername/gpgenie/actions/workflows/test.yml/badge.svg)](https://github.com/yourusername/gpgenie/actions/workflows/test.yml)
-[![codecov](https://codecov.io/gh/yourusername/gpgenie/branch/main/graph/badge.svg)](https://codecov.io/gh/yourusername/gpgenie)
-[![Go Report Card](https://goreportcard.com/badge/github.com/yourusername/gpgenie)](https://goreportcard.com/report/github.com/yourusername/gpgenie)
-[![Release](https://img.shields.io/github/release/yourusername/gpgenie.svg)](https://github.com/yourusername/gpgenie/releases/latest)
+[![Go Test and Coverage](https://github.com/iyuangang/gpgenie/actions/workflows/test.yml/badge.svg)](https://github.com/iyuangang/gpgenie/actions/workflows/test.yml)
+[![codecov](https://codecov.io/gh/iyuangang/gpgenie/branch/main/graph/badge.svg)](https://codecov.io/gh/iyuangang/gpgenie)
+[![Go Report Card](https://goreportcard.com/badge/github.com/iyuangang/gpgenie)](https://goreportcard.com/report/github.com/iyuangang/gpgenie)
+[![Release](https://img.shields.io/github/release/iyuangang/gpgenie.svg)](https://github.com/iyuangang/gpgenie/releases/latest)
 
 GPGenie is a high-performance PGP key generation and management tool, focusing on generating PGP key pairs with special fingerprint characteristics.
 
