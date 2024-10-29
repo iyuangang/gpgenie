@@ -36,3 +36,6 @@ config.json
 
 # log file
 *.log
+
+# build folder
+build/
