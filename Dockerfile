@@ -12,11 +12,10 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 # Copy the source code
-COPY ./cmd/gpgenie ./cmd/gpgenie
-COPY ./internal ./internal
+COPY ./ ./
 
 # Build the application
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o gpgenie ./cmd/gpgenie
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o gpgenie ./cmd/gpgenie
 
 # Stage 2: Create the final image
 FROM alpine:latest

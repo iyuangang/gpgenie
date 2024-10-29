@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - dev
-    tags: 
+    tags:
       - "v*"
 
   pull_request:
@@ -44,7 +44,7 @@ jobs:
         GOOS: ${{ matrix.platform }}
         GOARCH: amd64
       run: |
-        go build -ldflags="-X main.Version=${{ steps.version.outputs.VERSION }} -X main.Commit=${{ steps.version.outputs.COMMIT }}" -o gpgenie-${{ matrix.platform }}-amd64 ./cmd/gpgenie
+        go build -ldflags="-s -w -X main.Version=${{ steps.version.outputs.VERSION }} -X main.Commit=${{ steps.version.outputs.COMMIT }}" -o gpgenie-${{ matrix.platform }}-amd64 ./cmd/gpgenie
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4

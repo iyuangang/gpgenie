@@ -26,7 +26,7 @@ build:
 	$(GO_BUILD) -o $(BUILD_DIR)/$(BINARY_NAME) $(CMD_DIR)/main.go
 
 # Cross-compile for different OS and architectures
-release: clean
+release:
 	@echo "Cross-compiling for all supported OS and architectures..."
 	GOOS=linux GOARCH=amd64 $(GO_BUILD) -ldflags "-s -w" -o $(BUILD_DIR)/$(BINARY_NAME)-linux-amd64 $(CMD_DIR)/main.go
 	GOOS=linux GOARCH=arm64 $(GO_BUILD) -ldflags "-s -w" -o $(BUILD_DIR)/$(BINARY_NAME)-linux-arm64 $(CMD_DIR)/main.go
