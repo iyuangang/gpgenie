@@ -44,6 +44,9 @@ func NewEntity(cfg config.KeyGenerationConfig) (*openpgp.Entity, error) {
 
 // SerializeKeys 序列化公钥和私钥，并加密私钥
 func SerializeKeys(entity *openpgp.Entity, encryptor Encryptor) (string, string, error) {
+	if encryptor == nil {
+		return "", "", fmt.Errorf("encryptor is nil")
+	}
 	// 序列化公钥
 	var pubKeyBuf bytes.Buffer
 	pubArmor, err := armor.Encode(&pubKeyBuf, openpgp.PublicKeyType, nil)

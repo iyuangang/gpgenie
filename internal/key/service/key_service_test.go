@@ -115,14 +115,15 @@ func TestGenerateKeys(t *testing.T) {
 
 	// 配置
 	cfg := config.KeyGenerationConfig{
-		TotalKeys:       10,
-		NumWorkers:      2,
-		MinScore:        50,
-		MaxLettersCount: 10,
-		BatchSize:       5,
-		Name:            "Test",
-		Comment:         "Testing",
-		Email:           "test@example.com",
+		NumGeneratorWorkers: 10,
+		NumScorerWorkers:    2,
+		TotalKeys:           10,
+		MinScore:            50,
+		MaxLettersCount:     10,
+		BatchSize:           5,
+		Name:                "Test",
+		Comment:             "Testing",
+		Email:               "test@example.com",
 	}
 
 	// 初始化 KeyService
@@ -152,14 +153,15 @@ func TestGenerateKeys_EncryptError(t *testing.T) {
 
 	// 配置
 	cfg := config.KeyGenerationConfig{
-		TotalKeys:       10,
-		NumWorkers:      2,
-		MinScore:        50,
-		MaxLettersCount: 10,
-		BatchSize:       5,
-		Name:            "Test",
-		Comment:         "Testing",
-		Email:           "test@example.com",
+		NumGeneratorWorkers: 10,
+		NumScorerWorkers:    2,
+		TotalKeys:           10,
+		MinScore:            50,
+		MaxLettersCount:     10,
+		BatchSize:           5,
+		Name:                "Test",
+		Comment:             "Testing",
+		Email:               "test@example.com",
 	}
 
 	// 初始化 KeyService

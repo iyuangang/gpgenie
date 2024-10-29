@@ -32,15 +32,16 @@ type DatabaseConfig struct {
 }
 
 type KeyGenerationConfig struct {
-	TotalKeys          int    `mapstructure:"total_keys"`
-	NumWorkers         int    `mapstructure:"num_workers"`
-	MinScore           int    `mapstructure:"min_score"`
-	MaxLettersCount    int    `mapstructure:"max_letters_count"`
-	BatchSize          int    `mapstructure:"batch_size"`
-	Name               string `mapstructure:"name"`
-	Comment            string `mapstructure:"comment"`
-	Email              string `mapstructure:"email"`
-	EncryptorPublicKey string `mapstructure:"encryptor_public_key"`
+	NumGeneratorWorkers int    `mapstructure:"num_generator_workers"`
+	NumScorerWorkers    int    `mapstructure:"num_scorer_workers"`
+	TotalKeys           int    `mapstructure:"total_keys"`
+	MinScore            int    `mapstructure:"min_score"`
+	MaxLettersCount     int    `mapstructure:"max_letters_count"`
+	BatchSize           int    `mapstructure:"batch_size"`
+	Name                string `mapstructure:"name"`
+	Comment             string `mapstructure:"comment"`
+	Email               string `mapstructure:"email"`
+	EncryptorPublicKey  string `mapstructure:"encryptor_public_key"`
 }
 
 func Load(configPath string) (*Config, error) {

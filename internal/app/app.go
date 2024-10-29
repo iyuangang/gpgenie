@@ -43,7 +43,10 @@ func NewApp(configPath string) (*App, error) {
 	repo := repository.NewKeyRepository(db.DB)
 
 	// 初始化 KeyService，并注入 Encryptor
-	keyService := service.NewKeyService(repo, cfg.KeyGeneration, nil, log)
+	keyService, err := service.InitializeKeyService(*cfg, repo, log)
+	if err != nil {
+		return nil, fmt.Errorf("初始化 KeyService 失败: %w", err)
+	}
 
 	return &App{
 		Config:     cfg,

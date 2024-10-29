@@ -137,7 +137,7 @@ func InitLogger(cfg *config.LoggingConfig) (*Logger, error) {
 
 	// 创建 Zap Logger
 	zapLogger := zap.New(multiCore, zap.AddCaller(), zap.AddStacktrace(zapcore.ErrorLevel))
-	sugar := zapLogger.Sugar().With("app", "gpgenie", "version", "0.1.0")
+	sugar := zapLogger.Sugar()
 
 	return &Logger{SugaredLogger: sugar}, nil
 }

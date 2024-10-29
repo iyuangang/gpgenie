@@ -96,10 +96,8 @@ func isDecreasing(a, b byte) bool {
 	return valB == expected
 }
 
-
 // CalculateScores 计算给定字符串的各种分数
 func CalculateScores(line string) (Scores, error) {
-
 	line = strings.ToUpper(line) // 统一为大写
 
 	var (
@@ -157,10 +155,10 @@ func CalculateScores(line string) (Scores, error) {
 				currentSequenceInc++
 			} else {
 				if currentSequenceInc > 3 {
-						score := increasingScoreMap[currentSequenceInc]
-						if score > increasingScore {
-							increasingScore = score
-						}
+					score := increasingScoreMap[currentSequenceInc]
+					if score > increasingScore {
+						increasingScore = score
+					}
 				}
 				currentSequenceInc = 1
 			}
@@ -170,10 +168,10 @@ func CalculateScores(line string) (Scores, error) {
 				currentSequenceDec++
 			} else {
 				if currentSequenceDec > 3 {
-						score := decreasingScoreMap[currentSequenceDec]
-						if score > decreasingScore {
-							decreasingScore = score
-						}
+					score := decreasingScoreMap[currentSequenceDec]
+					if score > decreasingScore {
+						decreasingScore = score
+					}
 				}
 				currentSequenceDec = 1
 			}
@@ -182,22 +180,22 @@ func CalculateScores(line string) (Scores, error) {
 
 	// 最后一次检查和评分计算
 	if currentSequenceRepeat >= 3 {
-			score := repeatScoreMap[currentSequenceRepeat]
-			if score > repeatScore {
-				repeatScore = score
-			}
+		score := repeatScoreMap[currentSequenceRepeat]
+		if score > repeatScore {
+			repeatScore = score
+		}
 	}
 	if currentSequenceInc > 3 {
-			score := increasingScoreMap[currentSequenceInc]
-			if score > increasingScore {
-				increasingScore = score
-			}
+		score := increasingScoreMap[currentSequenceInc]
+		if score > increasingScore {
+			increasingScore = score
+		}
 	}
 	if currentSequenceDec > 3 {
-			score := decreasingScoreMap[currentSequenceDec]
-			if score > decreasingScore {
-				decreasingScore = score
-			}
+		score := decreasingScoreMap[currentSequenceDec]
+		if score > decreasingScore {
+			decreasingScore = score
+		}
 	}
 
 	// 计算唯一字母的数量

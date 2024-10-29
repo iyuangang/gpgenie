@@ -10,6 +10,8 @@ import (
 	"gpgenie/internal/logger"
 	"gpgenie/internal/repository"
 	"gpgenie/models"
+
+	"github.com/ProtonMail/go-crypto/openpgp"
 )
 
 // KeyService 定义了密钥服务的接口
@@ -42,32 +44,33 @@ func NewKeyService(repo repository.KeyRepository, cfg config.KeyGenerationConfig
 // GenerateKeys 实现 GenerateKeys 方法
 func (s *keyService) GenerateKeys(ctx context.Context) error {
 	cfg := s.config
-	workerCount := cfg.NumWorkers
+	generatorWorkerCount := cfg.NumGeneratorWorkers
+	scorerWorkerCount := cfg.NumScorerWorkers
 	jobCount := cfg.TotalKeys
 
-	jobs := make(chan struct{}, workerCount*10000)
-	results := make(chan *models.KeyInfo, cfg.BatchSize*20)
+	// Channels for pipeline
+	generationJobs := make(chan struct{}, generatorWorkerCount*1000)
+	generatedEntities := make(chan *openpgp.Entity, jobCount)
+	scoredKeyInfos := make(chan *models.KeyInfo, scorerWorkerCount*10000)
 
-	var wg sync.WaitGroup
+	var wgGenerators sync.WaitGroup
+	var wgScorers sync.WaitGroup
 
-	// 启动 Workers
-	for i := 0; i < workerCount; i++ {
-		wg.Add(1)
-		go s.worker(i, ctx, jobs, results, &wg)
-		s.logger.Debugf("Worker %d 启动。", i)
+	// Start Generator Workers
+	for i := 0; i < generatorWorkerCount; i++ {
+		wgGenerators.Add(1)
+		go s.generatorWorker(i, ctx, generationJobs, generatedEntities, &wgGenerators)
+		s.logger.Debugf("Generator Worker %d 启动。", i)
 	}
 
-	// 加载 Encryptor，仅在 GenerateKeys 时加载
-	encryptorPublicKey := s.config.EncryptorPublicKey
-	if encryptorPublicKey != "" {
-		var err error
-		s.encryptor, err = NewPGPEncryptor(encryptorPublicKey)
-		if err != nil {
-			s.logger.Errorf("加载公钥失败: %v", err)
-			return fmt.Errorf("加载公钥失败: %w", err)
-		}
+	// Start Scorer Workers
+	for i := 0; i < scorerWorkerCount; i++ {
+		wgScorers.Add(1)
+		go s.scorerWorker(i, ctx, generatedEntities, scoredKeyInfos, &wgScorers)
+		s.logger.Debugf("Scorer Worker %d 启动。", i)
 	}
 
+	// Start Saver Goroutine
 	insertWg := sync.WaitGroup{}
 	insertWg.Add(1)
 	go func() {
@@ -84,8 +87,8 @@ func (s *keyService) GenerateKeys(ctx context.Context) error {
 			}
 		}()
 
-		for key := range results {
-			if key != nil { // 确保 key 不为 nil
+		for key := range scoredKeyInfos {
+			if key != nil {
 				localBatch = append(localBatch, key)
 				if len(localBatch) >= cfg.BatchSize {
 					if err := tx.BatchCreate(localBatch); err != nil {
@@ -119,53 +122,115 @@ func (s *keyService) GenerateKeys(ctx context.Context) error {
 		}
 	}()
 
-	// 发送 Jobs
+	// Start Enqueue Generation Jobs
 	go func() {
+		defer close(generationJobs)
 		for i := 0; i < jobCount; i++ {
 			select {
-			case jobs <- struct{}{}:
+			case generationJobs <- struct{}{}:
 			case <-ctx.Done():
-				close(jobs)
+				s.logger.Warn("Enqueue Generation Jobs 被取消。")
 				return
 			}
 		}
-		close(jobs)
 	}()
 
-	// 等待 Workers 完成
-	wg.Wait()
-	close(results)
+	// Wait for Generators to Finish
+	wgGenerators.Wait()
+	close(generatedEntities)
 
-	// 等待插入 Workers 完成
+	// Wait for Scorers to Finish
+	wgScorers.Wait()
+	close(scoredKeyInfos)
+
+	// Wait for Saver to Finish
 	insertWg.Wait()
 
 	s.logger.Info("密钥生成过程完成。")
 	return nil
 }
 
-// worker 是 Worker Pool 的单个 Worker，负责生成和评分密钥
-func (s *keyService) worker(id int, ctx context.Context, jobs <-chan struct{}, results chan<- *models.KeyInfo, wg *sync.WaitGroup) {
+// generatorWorker 是生成密钥的 Worker
+func (s *keyService) generatorWorker(id int, ctx context.Context, jobs <-chan struct{}, output chan<- *openpgp.Entity, wg *sync.WaitGroup) {
 	defer wg.Done()
-	s.logger.Debugf("Worker %d 开始工作。", id)
+	s.logger.Debugf("Generator Worker %d 开始工作。", id)
 	for {
 		select {
 		case <-ctx.Done():
-			s.logger.Debugf("Worker %d 接收到取消信号。", id)
+			s.logger.Debugf("Generator Worker %d 接收到取消信号。", id)
 			return
 		case _, ok := <-jobs:
 			if !ok {
-				s.logger.Debugf("Worker %d 完成工作。", id)
+				s.logger.Debugf("Generator Worker %d 完成工作。", id)
 				return
 			}
-			keyInfo, err := domain.GenerateAndScoreKeyPair(s.config, s.encryptor)
-			if keyInfo != nil && err == nil {
-				select {
-				case results <- keyInfo:
-				case <-ctx.Done():
-					return
-				}
-			} else if err != nil {
-				s.logger.Errorf("Worker %d 生成密钥失败: %v", id, err)
+			entity, err := domain.GenerateKeyPair(s.config, s.encryptor)
+			if err != nil {
+				s.logger.Errorf("Generator Worker %d 生成密钥失败: %v", id, err)
+				continue
+			}
+			select {
+			case output <- entity:
+			case <-ctx.Done():
+				s.logger.Debugf("Generator Worker %d 接收到取消信号。", id)
+				return
+			}
+		}
+	}
+}
+
+// scorerWorker 是负责评分和筛选密钥的 Worker
+func (s *keyService) scorerWorker(id int, ctx context.Context, input <-chan *openpgp.Entity, output chan<- *models.KeyInfo, wg *sync.WaitGroup) {
+	defer wg.Done()
+	s.logger.Debugf("Scorer Worker %d 开始工作。", id)
+	for {
+		select {
+		case <-ctx.Done():
+			s.logger.Debugf("Scorer Worker %d 接收到取消信号。", id)
+			return
+		case entity, ok := <-input:
+			if !ok {
+				s.logger.Debugf("Scorer Worker %d 完成工作。", id)
+				return
+			}
+
+			fingerprint := fmt.Sprintf("%x", entity.PrimaryKey.Fingerprint)
+			lastSixteen := fingerprint[len(fingerprint)-16:]
+			scores, err := domain.CalculateScores(lastSixteen)
+			if err != nil {
+				s.logger.Errorf("Scorer Worker %d 计算分数失败: %v", id, err)
+				continue
+			}
+			totalScore := scores.RepeatLetterScore + scores.IncreasingLetterScore + scores.DecreasingLetterScore + scores.MagicLetterScore
+
+			// 不符合标准时跳过
+			if totalScore <= s.config.MinScore || scores.UniqueLettersCount < s.config.MaxLettersCount {
+				continue
+			}
+
+			pubKeyStr, privKeyStr, err := domain.SerializeKeys(entity, s.encryptor)
+			if err != nil {
+				s.logger.Errorf("Scorer Worker %d 序列化密钥失败: %v", id, err)
+				continue
+			}
+
+			keyInfo := &models.KeyInfo{
+				Fingerprint:           fingerprint,
+				PublicKey:             pubKeyStr,
+				PrivateKey:            privKeyStr,
+				RepeatLetterScore:     scores.RepeatLetterScore,
+				IncreasingLetterScore: scores.IncreasingLetterScore,
+				DecreasingLetterScore: scores.DecreasingLetterScore,
+				MagicLetterScore:      scores.MagicLetterScore,
+				Score:                 totalScore,
+				UniqueLettersCount:    scores.UniqueLettersCount,
+			}
+
+			select {
+			case output <- keyInfo:
+			case <-ctx.Done():
+				s.logger.Debugf("Scorer Worker %d 接收到取消信号。", id)
+				return
 			}
 		}
 	}

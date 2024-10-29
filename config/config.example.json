@@ -14,8 +14,10 @@
     "batch_size": 20
   },
   "key_generation": {
+    "num_generator_workers": 12,
+    "num_scorer_workers": 2,
     "total_keys": 10000000,
-    "num_workers": 12,
+    "batch_size": 20,
     "min_score": 200,
     "max_letters_count": 5,
     "name": "Your Name",
