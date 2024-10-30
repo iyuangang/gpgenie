@@ -1,8 +1,6 @@
 package cmd
 
 import (
-	"fmt"
-
 	"gpgenie/internal/app"
 
 	"github.com/spf13/cobra"
@@ -17,16 +15,16 @@ var AnalyzeCmd = &cobra.Command{
 		appInterface := viper.Get("app")
 		appInstance, ok := appInterface.(*app.App)
 		if !ok {
-			fmt.Println("无法获取应用实例")
+			log.Error("无法获取应用实例")
 			return
 		}
 
 		if err := appInstance.KeyService.AnalyzeData(); err != nil {
-			fmt.Printf("分析密钥数据失败: %v\n", err)
+			log.Errorf("分析密钥数据失败: %v", err)
 			return
 		}
 
-		fmt.Println("密钥数据分析完成。")
+		log.Info("密钥数据分析完成。")
 	},
 }
 

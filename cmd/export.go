@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"fmt"
 	"os"
 
 	"gpgenie/internal/app"
@@ -24,16 +23,16 @@ var ExportCmd = &cobra.Command{
 		appInterface := viper.Get("app")
 		appInstance, ok := appInterface.(*app.App)
 		if !ok {
-			fmt.Println("无法获取应用实例")
+			log.Error("无法获取应用实例")
 			return
 		}
 
 		if err := appInstance.KeyService.ExportKeyByFingerprint(exportFingerprint, exportOutputDir, exportArmor); err != nil {
-			fmt.Printf("导出密钥失败: %v\n", err)
+			log.Errorf("导出密钥失败: %v", err)
 			return
 		}
 
-		fmt.Println("密钥导出成功。")
+		log.Info("密钥导出成功。")
 	},
 }
 
@@ -43,7 +42,7 @@ func init() {
 	ExportCmd.Flags().StringVarP(&exportFingerprint, "fingerprint", "f", "", "密钥的最后十六位指纹 (必需)")
 	err := ExportCmd.MarkFlagRequired("fingerprint")
 	if err != nil {
-		fmt.Printf("设置指纹标志失败: %v\n", err)
+		log.Errorf("设置指纹标志失败: %v", err)
 		os.Exit(1)
 	}
 	ExportCmd.Flags().StringVarP(&exportOutputDir, "output-dir", "o", "./exported_keys", "密钥导出目录")

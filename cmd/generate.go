@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"fmt"
 
 	"gpgenie/internal/app"
 
@@ -23,19 +22,21 @@ var GenerateCmd = &cobra.Command{
 		appInterface := viper.Get("app")
 		appInstance, ok := appInterface.(*app.App)
 		if !ok {
-			fmt.Println("无法获取应用实例")
+			log.Error("无法获取应用实例")
 			return
 		}
+
+		log.Infof("开始生成密钥，总数: %d, 批次大小: %d", totalKeys, batchSize)
 
 		appInstance.Config.KeyGeneration.TotalKeys = totalKeys
 		appInstance.Config.KeyGeneration.BatchSize = batchSize
 
 		if err := appInstance.KeyService.GenerateKeys(context.Background()); err != nil {
-			fmt.Printf("生成密钥失败: %v\n", err)
+			log.Errorf("生成密钥失败: %v", err)
 			return
 		}
 
-		fmt.Println("密钥生成完成。")
+		log.Info("密钥生成完成")
 	},
 }
 

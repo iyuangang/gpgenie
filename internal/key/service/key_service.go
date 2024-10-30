@@ -18,7 +18,7 @@ import (
 type KeyService interface {
 	GenerateKeys(ctx context.Context) error
 	ShowTopKeys(n int) error
-	ShowLowLetterCountKeys(n int) error
+	ShowMinimalKeys(n int) error
 	ExportKeyByFingerprint(lastSixteen, outputDir string, exportArmor bool) error
 	AnalyzeData() error
 }
@@ -247,8 +247,8 @@ func (s *keyService) ShowTopKeys(n int) error {
 	return nil
 }
 
-// ShowLowLetterCountKeys 实现 ShowLowLetterCountKeys 方法
-func (s *keyService) ShowLowLetterCountKeys(n int) error {
+// ShowMinimalKeys 实现 ShowMinimalKeys 方法
+func (s *keyService) ShowMinimalKeys(n int) error {
 	keys, err := s.repo.GetLowLetterCountKeys(n)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve low letter count keys: %w", err)
