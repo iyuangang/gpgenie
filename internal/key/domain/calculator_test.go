@@ -17,8 +17,8 @@ func TestCalculateScores(t *testing.T) {
 		wantErr  bool
 	}{
 		{
-			name:  "empty string",
-			input: "",
+			name:     "empty string",
+			input:    "",
 			expected: Scores{},
 		},
 		{
@@ -32,7 +32,7 @@ func TestCalculateScores(t *testing.T) {
 			name:  "repeated letters",
 			input: "AAAA",
 			expected: Scores{
-				RepeatLetterScore: repeatScoreMap[4],
+				RepeatLetterScore:  repeatScoreMap[4],
 				UniqueLettersCount: 1,
 			},
 		},
@@ -41,7 +41,7 @@ func TestCalculateScores(t *testing.T) {
 			input: "0123456",
 			expected: Scores{
 				IncreasingLetterScore: sequenceScoreMap[7],
-				UniqueLettersCount:   7,
+				UniqueLettersCount:    7,
 			},
 		},
 		{
@@ -49,16 +49,16 @@ func TestCalculateScores(t *testing.T) {
 			input: "FEDCBA",
 			expected: Scores{
 				DecreasingLetterScore: sequenceScoreMap[6],
-				UniqueLettersCount:   6,
+				UniqueLettersCount:    6,
 			},
 		},
 		{
 			name:  "magic sequence",
 			input: "49ABCD",
 			expected: Scores{
-				MagicLetterScore: magicScore,
+				MagicLetterScore:      magicScore,
 				IncreasingLetterScore: sequenceScoreMap[5],
-				UniqueLettersCount: 6,
+				UniqueLettersCount:    6,
 			},
 		},
 		{
@@ -69,8 +69,8 @@ func TestCalculateScores(t *testing.T) {
 			},
 		},
 		{
-			name:  "invalid characters",
-			input: "!@#$%^",
+			name:     "invalid characters",
+			input:    "!@#$%^",
 			expected: Scores{},
 		},
 		{
