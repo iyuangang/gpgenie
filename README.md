@@ -119,7 +119,7 @@ gpgenie analyze
 
 ```
 gpgenie/
-├── cmd/                    # Command line tools
+├── cmd/                   # Command line tools
 ├── internal/
 │   ├── app/               # Application core
 │   ├── config/            # Configuration management
@@ -130,7 +130,7 @@ gpgenie/
 │   ├── logger/            # Logging management
 │   └── repository/        # Data access
 ├── models/                # Data models
-└── config/               # Configuration files
+└── config/                # Configuration files
 ```
 
 ## Tech Stack
@@ -220,4 +220,3 @@ The scoring system evaluates key fingerprints based on:
 - ProtonMail's go-crypto library
 - The Go community
 - All contributors to this project
-ould you like me to modify or add any specific sections?
