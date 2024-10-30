@@ -204,7 +204,7 @@ func (s *keyService) scorerWorker(id int, ctx context.Context, input <-chan *ope
 			totalScore := scores.RepeatLetterScore + scores.IncreasingLetterScore + scores.DecreasingLetterScore + scores.MagicLetterScore
 
 			// 不符合标准时跳过
-			if totalScore <= s.config.MinScore || scores.UniqueLettersCount < s.config.MaxLettersCount {
+			if totalScore <= s.config.MinScore && scores.UniqueLettersCount > s.config.MaxLettersCount {
 				continue
 			}
 
