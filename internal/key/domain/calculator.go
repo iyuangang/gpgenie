@@ -17,19 +17,19 @@ type Scores struct {
 
 // 使用const提升编译期优化机会
 const (
-	maxSeqLength = 16
+	maxSeqLength   = 16
 	baseMultiplier = 100
-	magicScore = -100
-	minSeqLength = 3
+	magicScore     = -100
+	minSeqLength   = 3
 )
 
 // 预计算的分数映射表 - 使用const数组提高性能
 var (
 	// 使用更大的数组避免边界检查
-	repeatScoreMap    [32]int
-	sequenceScoreMap  [32]int
+	repeatScoreMap   [32]int
+	sequenceScoreMap [32]int
 	// 使用更紧凑的查找表
-	charToValueMap    [256]int8
+	charToValueMap [256]int8
 )
 
 // 编译期初始化所有查找表
@@ -63,6 +63,7 @@ func init() {
 }
 
 // 内联优化的值转换函数
+//
 //go:inline
 func charToValue(c byte) (int8, bool) {
 	val := charToValueMap[c]
@@ -78,17 +79,17 @@ func CalculateScores(line string) (Scores, error) {
 
 	// 使用栈分配替代堆分配
 	var (
-		uniqueMask        uint16 // 使用位掩码追踪唯一字符
-		repeatLen         uint8  = 1
-		increasingLen     uint8  = 1
-		decreasingLen     uint8  = 1
-		maxRepeatScore    int
+		uniqueMask         uint16 // 使用位掩码追踪唯一字符
+		repeatLen          uint8  = 1
+		increasingLen      uint8  = 1
+		decreasingLen      uint8  = 1
+		maxRepeatScore     int
 		maxIncreasingScore int
 		maxDecreasingScore int
-		uniqueCount       int
-		hasMagicSequence  bool
-		prevVal          int8   = -1
-		prevChar         byte
+		uniqueCount        int
+		hasMagicSequence   bool
+		prevVal            int8 = -1
+		prevChar           byte
 	)
 
 	// 快速路径：检查魔法序列
