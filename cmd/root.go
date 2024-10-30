@@ -5,12 +5,17 @@ import (
 	"os"
 
 	"gpgenie/internal/app"
+	"gpgenie/internal/config"
+	"gpgenie/internal/logger"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
-var cfgFile string
+var (
+	cfgFile string
+	log     *logger.Logger
+)
 
 var RootCmd = &cobra.Command{
 	Use:   "gpgenie",
@@ -20,18 +25,18 @@ var RootCmd = &cobra.Command{
 		// 初始化应用
 		appInstance, err := app.NewApp(cfgFile)
 		if err != nil {
-			fmt.Printf("初始化应用失败: %v\n", err)
+			log.Errorf("初始化应用失败: %v", err)
 			os.Exit(1)
 		}
 
-		// 将 appInstance 存储在 Viper 中，以便子命令访问
+		log.Infof("使用配置文件: %s", viper.ConfigFileUsed())
 		viper.Set("app", appInstance)
 	},
 }
 
 func Execute() {
 	if err := RootCmd.Execute(); err != nil {
-		fmt.Println(err)
+		log.Errorf("执行命令失败: %v", err)
 		os.Exit(1)
 	}
 }
@@ -39,29 +44,31 @@ func Execute() {
 func init() {
 	cobra.OnInitialize(initConfig)
 
-	// 定义全局配置文件标志
-	RootCmd.PersistentFlags().StringVar(&cfgFile, "config", "config/config.json", "配置文件路径 (默认为 config/config.json)")
+	RootCmd.PersistentFlags().StringVar(&cfgFile, "config", "config/config.json", "配置文件路径")
 
-	// 绑定配置文件标志到 Viper
-	err := viper.BindPFlag("config", RootCmd.PersistentFlags().Lookup("config"))
-	if err != nil {
+	if err := viper.BindPFlag("config", RootCmd.PersistentFlags().Lookup("config")); err != nil {
 		fmt.Printf("绑定配置文件标志失败: %v\n", err)
+		os.Exit(1)
+	}
+
+	// 初始化日志
+	var err error
+	log, err = logger.InitLogger(&config.LoggingConfig{})
+	if err != nil {
+		fmt.Printf("初始化日志失败: %v\n", err)
 		os.Exit(1)
 	}
 }
 
 func initConfig() {
 	if cfgFile != "" {
-		// 指定配置文件
 		viper.SetConfigFile(cfgFile)
 	} else {
-		// 默认配置文件路径
 		viper.AddConfigPath(".")
 		viper.SetConfigName("config")
 	}
 
-	// 读取配置文件
-	if err := viper.ReadInConfig(); err == nil {
-		fmt.Println("使用配置文件:", viper.ConfigFileUsed())
+	if err := viper.ReadInConfig(); err != nil {
+		log.Errorf("读取配置文件失败: %v", err)
 	}
 }
