@@ -124,6 +124,6 @@ func ExportKey(key *models.KeyInfo, outputDir string, exportArmor bool, encrypto
 		return fmt.Errorf("failed to write private key: %w", err)
 	}
 
-	log.Infof("密钥已导出到 %s 和 %s", pubKeyPath, privKeyPath)
+	log.Infof("keys exported to %s and %s", pubKeyPath, privKeyPath)
 	return nil
 }
