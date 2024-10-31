@@ -14,7 +14,7 @@ import (
 	"github.com/ProtonMail/go-crypto/openpgp"
 )
 
-// KeyService 定义了密钥服务的接口
+// KeyService defines the interface for the key service
 type KeyService interface {
 	GenerateKeys(ctx context.Context) error
 	ShowTopKeys(n int) error
@@ -23,7 +23,7 @@ type KeyService interface {
 	AnalyzeData() error
 }
 
-// keyService 是 KeyService 接口的具体实现
+// keyService is the implementation of the KeyService interface
 type keyService struct {
 	repo      repository.KeyRepository
 	config    config.KeyGenerationConfig
@@ -31,7 +31,7 @@ type keyService struct {
 	logger    *logger.Logger
 }
 
-// NewKeyService 创建一个新的 KeyService 实例，通过依赖注入传入 Encryptor 接口
+// NewKeyService creates a new KeyService instance, passing in the Encryptor interface
 func NewKeyService(repo repository.KeyRepository, cfg config.KeyGenerationConfig, encryptor domain.Encryptor, log *logger.Logger) KeyService {
 	return &keyService{
 		repo:      repo,
@@ -41,7 +41,7 @@ func NewKeyService(repo repository.KeyRepository, cfg config.KeyGenerationConfig
 	}
 }
 
-// GenerateKeys 实现 GenerateKeys 方法
+// GenerateKeys generates key pairs
 func (s *keyService) GenerateKeys(ctx context.Context) error {
 	cfg := s.config
 	generatorWorkerCount := cfg.NumGeneratorWorkers
@@ -49,76 +49,93 @@ func (s *keyService) GenerateKeys(ctx context.Context) error {
 	jobCount := cfg.TotalKeys
 
 	// Channels for pipeline
-	generationJobs := make(chan struct{}, generatorWorkerCount*1000)
+	generationJobs := make(chan struct{}, generatorWorkerCount*20)
 	generatedEntities := make(chan *openpgp.Entity, jobCount)
-	scoredKeyInfos := make(chan *models.KeyInfo, scorerWorkerCount*10000)
+	scoredKeyInfos := make(chan *models.KeyInfo, scorerWorkerCount*20)
 
-	var wgGenerators sync.WaitGroup
-	var wgScorers sync.WaitGroup
+	// Create KeyInfo object pool
+	keyInfoPool := sync.Pool{
+		New: func() interface{} {
+			return &models.KeyInfo{}
+		},
+	}
+
+	var (
+		wgGenerators sync.WaitGroup
+		wgScorers    sync.WaitGroup
+		errChan      = make(chan error, 1)
+	)
 
 	// Start Generator Workers
 	for i := 0; i < generatorWorkerCount; i++ {
 		wgGenerators.Add(1)
 		go s.generatorWorker(i, ctx, generationJobs, generatedEntities, &wgGenerators)
-		s.logger.Debugf("Generator Worker %d 启动。", i)
+		s.logger.Debugf("Generator Worker %d started.", i)
 	}
 
-	// Start Scorer Workers
+	// Start Scorer Workers with object pool
 	for i := 0; i < scorerWorkerCount; i++ {
 		wgScorers.Add(1)
-		go s.scorerWorker(i, ctx, generatedEntities, scoredKeyInfos, &wgScorers)
-		s.logger.Debugf("Scorer Worker %d 启动。", i)
+		go s.scorerWorker(i, ctx, generatedEntities, scoredKeyInfos, &wgScorers, &keyInfoPool)
+		s.logger.Debugf("Scorer Worker %d started.", i)
 	}
 
-	// Start Saver Goroutine
+	// Optimized Saver Goroutine
 	insertWg := sync.WaitGroup{}
 	insertWg.Add(1)
 	go func() {
 		defer insertWg.Done()
-		var localBatch []*models.KeyInfo
 
-		// 开始事务
+		localBatch := make([]*models.KeyInfo, 0, cfg.BatchSize)
 		tx := s.repo.BeginTransaction()
 		defer func() {
 			if r := recover(); r != nil {
 				if err := tx.Rollback(); err != nil {
-					s.logger.Errorf("回滚事务失败: %v", err)
+					select {
+					case errChan <- fmt.Errorf("rollback transaction failed: %v", err):
+					default:
+					}
 				}
 			}
 		}()
 
-		for key := range scoredKeyInfos {
-			if key != nil {
-				localBatch = append(localBatch, key)
-				if len(localBatch) >= cfg.BatchSize {
-					if err := tx.BatchCreate(localBatch); err != nil {
-						s.logger.Errorf("插入批次失败: %v", err)
-						if err := tx.Rollback(); err != nil {
-							s.logger.Errorf("回滚事务失败: %v", err)
-						}
-						return
+		for keyInfo := range scoredKeyInfos {
+			if keyInfo == nil {
+				continue
+			}
+
+			localBatch = append(localBatch, keyInfo)
+			if len(localBatch) >= cfg.BatchSize {
+				s.logger.Infof("Saving %d keys to database.", len(localBatch))
+				if err := tx.BatchCreate(localBatch); err != nil {
+					select {
+					case errChan <- err:
+					default:
 					}
-					s.logger.Infof("插入了 %d 个密钥。", len(localBatch))
-					localBatch = nil
+					return
 				}
+				// Reset batch and preallocate capacity
+				localBatch = make([]*models.KeyInfo, 0, cfg.BatchSize)
 			}
 		}
-		// 插入剩余的密钥
+
+		// Process remaining keys
 		if len(localBatch) > 0 {
+			s.logger.Infof("Saving %d keys to database.", len(localBatch))
 			if err := tx.BatchCreate(localBatch); err != nil {
-				s.logger.Errorf("插入剩余批次失败: %v", err)
-				if err := tx.Rollback(); err != nil {
-					s.logger.Errorf("回滚事务失败: %v", err)
+				select {
+				case errChan <- err:
+				default:
 				}
 				return
 			}
-			s.logger.Infof("插入了 %d 个密钥。", len(localBatch))
 		}
 
-		// 提交事务
 		if err := tx.Commit(); err != nil {
-			s.logger.Errorf("事务提交失败: %v", err)
-			return
+			select {
+			case errChan <- err:
+			default:
+			}
 		}
 	}()
 
@@ -129,7 +146,7 @@ func (s *keyService) GenerateKeys(ctx context.Context) error {
 			select {
 			case generationJobs <- struct{}{}:
 			case <-ctx.Done():
-				s.logger.Warn("Enqueue Generation Jobs 被取消。")
+				s.logger.Warn("Enqueue Generation Jobs canceled.")
 				return
 			}
 		}
@@ -146,97 +163,103 @@ func (s *keyService) GenerateKeys(ctx context.Context) error {
 	// Wait for Saver to Finish
 	insertWg.Wait()
 
-	s.logger.Info("密钥生成过程完成。")
+	s.logger.Info("Key generation process completed.")
 	return nil
 }
 
-// generatorWorker 是生成密钥的 Worker
+// generatorWorker is a worker for generating key pairs
 func (s *keyService) generatorWorker(id int, ctx context.Context, jobs <-chan struct{}, output chan<- *openpgp.Entity, wg *sync.WaitGroup) {
 	defer wg.Done()
-	s.logger.Debugf("Generator Worker %d 开始工作。", id)
+	s.logger.Debugf("Generator Worker %d start working.", id)
 	for {
 		select {
 		case <-ctx.Done():
-			s.logger.Debugf("Generator Worker %d 接收到取消信号。", id)
+			s.logger.Debugf("Generator Worker %d received cancel signal.", id)
 			return
 		case _, ok := <-jobs:
 			if !ok {
-				s.logger.Debugf("Generator Worker %d 完成工作。", id)
+				s.logger.Debugf("Generator Worker %d finished working.", id)
 				return
 			}
 			entity, err := domain.GenerateKeyPair(s.config, s.encryptor)
 			if err != nil {
-				s.logger.Errorf("Generator Worker %d 生成密钥失败: %v", id, err)
+				s.logger.Errorf("Generator Worker %d generate key failed: %v", id, err)
 				continue
 			}
 			select {
 			case output <- entity:
 			case <-ctx.Done():
-				s.logger.Debugf("Generator Worker %d 接收到取消信号。", id)
+				s.logger.Debugf("Generator Worker %d received cancel signal.", id)
 				return
 			}
 		}
 	}
 }
 
-// scorerWorker 是负责评分和筛选密钥的 Worker
-func (s *keyService) scorerWorker(id int, ctx context.Context, input <-chan *openpgp.Entity, output chan<- *models.KeyInfo, wg *sync.WaitGroup) {
+// scorerWorker is a worker for scoring and filtering key pairs
+func (s *keyService) scorerWorker(id int, ctx context.Context, input <-chan *openpgp.Entity,
+	output chan<- *models.KeyInfo, wg *sync.WaitGroup, pool *sync.Pool,
+) {
 	defer wg.Done()
-	s.logger.Debugf("Scorer Worker %d 开始工作。", id)
+	s.logger.Debugf("Scorer Worker %d start working.", id)
+
 	for {
 		select {
 		case <-ctx.Done():
-			s.logger.Debugf("Scorer Worker %d 接收到取消信号。", id)
+			s.logger.Debugf("Scorer Worker %d received cancel signal.", id)
 			return
 		case entity, ok := <-input:
 			if !ok {
-				s.logger.Debugf("Scorer Worker %d 完成工作。", id)
+				s.logger.Debugf("Scorer Worker %d finished working.", id)
 				return
 			}
 
 			fingerprint := fmt.Sprintf("%x", entity.PrimaryKey.Fingerprint)
 			lastSixteen := fingerprint[len(fingerprint)-16:]
+
 			scores, err := domain.CalculateScores(lastSixteen)
 			if err != nil {
-				s.logger.Errorf("Scorer Worker %d 计算分数失败: %v", id, err)
+				s.logger.Errorf("Scorer Worker %d calculate scores failed: %v", id, err)
 				continue
 			}
-			totalScore := scores.RepeatLetterScore + scores.IncreasingLetterScore + scores.DecreasingLetterScore + scores.MagicLetterScore
 
-			// 不符合标准时跳过
+			totalScore := scores.RepeatLetterScore + scores.IncreasingLetterScore +
+				scores.DecreasingLetterScore + scores.MagicLetterScore
+
 			if totalScore <= s.config.MinScore && scores.UniqueLettersCount > s.config.MaxLettersCount {
 				continue
 			}
 
 			pubKeyStr, privKeyStr, err := domain.SerializeKeys(entity, s.encryptor)
 			if err != nil {
-				s.logger.Errorf("Scorer Worker %d 序列化密钥失败: %v", id, err)
+				s.logger.Errorf("Scorer Worker %d serialize keys failed: %v", id, err)
 				continue
 			}
 
-			keyInfo := &models.KeyInfo{
-				Fingerprint:           fingerprint,
-				PublicKey:             pubKeyStr,
-				PrivateKey:            privKeyStr,
-				RepeatLetterScore:     scores.RepeatLetterScore,
-				IncreasingLetterScore: scores.IncreasingLetterScore,
-				DecreasingLetterScore: scores.DecreasingLetterScore,
-				MagicLetterScore:      scores.MagicLetterScore,
-				Score:                 totalScore,
-				UniqueLettersCount:    scores.UniqueLettersCount,
-			}
+			// Get KeyInfo from pool
+			keyInfo := pool.Get().(*models.KeyInfo)
+			keyInfo.Fingerprint = fingerprint
+			keyInfo.PublicKey = pubKeyStr
+			keyInfo.PrivateKey = privKeyStr
+			keyInfo.RepeatLetterScore = scores.RepeatLetterScore
+			keyInfo.IncreasingLetterScore = scores.IncreasingLetterScore
+			keyInfo.DecreasingLetterScore = scores.DecreasingLetterScore
+			keyInfo.MagicLetterScore = scores.MagicLetterScore
+			keyInfo.Score = totalScore
+			keyInfo.UniqueLettersCount = scores.UniqueLettersCount
 
 			select {
 			case output <- keyInfo:
 			case <-ctx.Done():
-				s.logger.Debugf("Scorer Worker %d 接收到取消信号。", id)
+				pool.Put(keyInfo)
+				s.logger.Debugf("Scorer Worker %d received cancel signal.", id)
 				return
 			}
 		}
 	}
 }
 
-// ShowTopKeys 实现 ShowTopKeys 方法
+// ShowTopKeys implements the ShowTopKeys method
 func (s *keyService) ShowTopKeys(n int) error {
 	keys, err := s.repo.GetTopKeys(n)
 	if err != nil {
@@ -247,7 +270,7 @@ func (s *keyService) ShowTopKeys(n int) error {
 	return nil
 }
 
-// ShowMinimalKeys 实现 ShowMinimalKeys 方法
+// ShowMinimalKeys implements the ShowMinimalKeys method
 func (s *keyService) ShowMinimalKeys(n int) error {
 	keys, err := s.repo.GetLowLetterCountKeys(n)
 	if err != nil {
@@ -258,7 +281,7 @@ func (s *keyService) ShowMinimalKeys(n int) error {
 	return nil
 }
 
-// ExportKeyByFingerprint 实现 ExportKeyByFingerprint 方法
+// ExportKeyByFingerprint implements the ExportKeyByFingerprint method
 func (s *keyService) ExportKeyByFingerprint(lastSixteen, outputDir string, exportArmor bool) error {
 	keyInfo, err := s.repo.GetByFingerprint(lastSixteen)
 	if err != nil {
@@ -268,7 +291,7 @@ func (s *keyService) ExportKeyByFingerprint(lastSixteen, outputDir string, expor
 	return domain.ExportKey(keyInfo, outputDir, exportArmor, s.encryptor, s.logger)
 }
 
-// AnalyzeData 实现 AnalyzeData 方法
+// AnalyzeData implements the AnalyzeData method
 func (s *keyService) AnalyzeData() error {
 	analyzer := domain.NewAnalyzer(s.repo)
 	return analyzer.PerformAnalysis()
