@@ -17,34 +17,34 @@ var (
 
 var ExportCmd = &cobra.Command{
 	Use:   "export",
-	Short: "导出指定指纹的密钥",
-	Long:  `根据提供的指纹，导出相应的 PGP 密钥到指定目录。`,
+	Short: "export key by fingerprint",
+	Long:  `Export PGP keys by fingerprint to the specified directory.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		appInterface := viper.Get("app")
 		appInstance, ok := appInterface.(*app.App)
 		if !ok {
-			log.Error("无法获取应用实例")
+			log.Error("failed to get app instance")
 			return
 		}
 
 		if err := appInstance.KeyService.ExportKeyByFingerprint(exportFingerprint, exportOutputDir, exportArmor); err != nil {
-			log.Errorf("导出密钥失败: %v", err)
+			log.Errorf("failed to export key: %v", err)
 			return
 		}
 
-		log.Info("密钥导出成功。")
+		log.Info("key exported successfully.")
 	},
 }
 
 func init() {
 	RootCmd.AddCommand(ExportCmd)
 
-	ExportCmd.Flags().StringVarP(&exportFingerprint, "fingerprint", "f", "", "密钥的最后十六位指纹 (必需)")
+	ExportCmd.Flags().StringVarP(&exportFingerprint, "fingerprint", "f", "", "the last 16 digits of the fingerprint (required)")
 	err := ExportCmd.MarkFlagRequired("fingerprint")
 	if err != nil {
-		log.Errorf("设置指纹标志失败: %v", err)
+		log.Errorf("failed to set fingerprint flag: %v", err)
 		os.Exit(1)
 	}
-	ExportCmd.Flags().StringVarP(&exportOutputDir, "output-dir", "o", "./exported_keys", "密钥导出目录")
-	ExportCmd.Flags().BoolVarP(&exportArmor, "armor", "a", true, "是否使用 ASCII Armor 导出私钥")
+	ExportCmd.Flags().StringVarP(&exportOutputDir, "output-dir", "o", "./exported_keys", "the directory to export keys")
+	ExportCmd.Flags().BoolVarP(&exportArmor, "armor", "a", true, "whether to use ASCII Armor to export private keys")
 }

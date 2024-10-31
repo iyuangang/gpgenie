@@ -23,20 +23,20 @@ func NewApp(configPath string) (*App, error) {
 	// 加载配置
 	cfg, err := config.Load(configPath)
 	if err != nil {
-		return nil, fmt.Errorf("加载配置失败: %w", err)
+		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
 
 	// 初始化日志
 	log, err := logger.InitLogger(&cfg.Logging)
 	if err != nil {
-		return nil, fmt.Errorf("初始化日志失败: %w", err)
+		return nil, fmt.Errorf("failed to initialize logger: %w", err)
 	}
 
 	// 连接数据库
 	db, err := database.Connect(cfg.Database)
 	if err != nil {
-		log.Errorf("数据库连接错误: %v", err)
-		return nil, fmt.Errorf("连接数据库失败: %w", err)
+		log.Errorf("failed to connect to database: %v", err)
+		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
 	// 初始化仓储
@@ -45,7 +45,7 @@ func NewApp(configPath string) (*App, error) {
 	// 初始化 KeyService，并注入 Encryptor
 	keyService, err := service.InitializeKeyService(*cfg, repo, log)
 	if err != nil {
-		return nil, fmt.Errorf("初始化 KeyService 失败: %w", err)
+		return nil, fmt.Errorf("failed to initialize KeyService: %w", err)
 	}
 
 	return &App{

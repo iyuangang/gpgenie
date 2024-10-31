@@ -9,22 +9,22 @@ import (
 
 var AnalyzeCmd = &cobra.Command{
 	Use:   "analyze",
-	Short: "分析密钥数据",
-	Long:  `对数据库中的 PGP 密钥数据进行统计分析，包括评分统计和相关性分析。`,
+	Short: "analyze key data",
+	Long:  `Analyze PGP key data in the database, including scoring statistics and correlation analysis.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		appInterface := viper.Get("app")
 		appInstance, ok := appInterface.(*app.App)
 		if !ok {
-			log.Error("无法获取应用实例")
+			log.Error("failed to get app instance")
 			return
 		}
 
 		if err := appInstance.KeyService.AnalyzeData(); err != nil {
-			log.Errorf("分析密钥数据失败: %v", err)
+			log.Errorf("failed to analyze key data: %v", err)
 			return
 		}
 
-		log.Info("密钥数据分析完成。")
+		log.Info("key data analysis completed.")
 	},
 }
 

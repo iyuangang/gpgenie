@@ -7,66 +7,66 @@ import (
 	"github.com/spf13/viper"
 )
 
-var displayCount int // 统一的显示数量参数
+var displayCount int // the unified display count parameter
 
-// ShowCmd 展示密钥信息的主命令
+// ShowCmd the main command to display key information
 var ShowCmd = &cobra.Command{
 	Use:   "show",
-	Short: "显示密钥信息",
-	Long:  `显示数据库中的密钥信息，支持按不同条件排序和筛选。`,
+	Short: "display key information",
+	Long:  `display key information in the database, support sorting and filtering by different conditions.`,
 }
 
-// ShowTopCmd 显示高分密钥的子命令
+// ShowTopCmd the subcommand to display high-score keys
 var ShowTopCmd = &cobra.Command{
 	Use:   "top",
-	Short: "显示评分最高的密钥",
-	Long:  `显示数据库中评分最高的 N 个 PGP 密钥。`,
+	Short: "display the highest-scoring keys",
+	Long:  `display the highest N PGP keys in the database.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		appInterface := viper.Get("app")
 		appInstance, ok := appInterface.(*app.App)
 		if !ok {
-			log.Error("无法获取应用实例")
+			log.Error("failed to get app instance")
 			return
 		}
 
-		log.Debugf("显示评分最高的 %d 个密钥", displayCount)
+		log.Debugf("display the highest %d keys", displayCount)
 		if err := appInstance.KeyService.ShowTopKeys(displayCount); err != nil {
-			log.Errorf("显示高分密钥失败: %v", err)
+			log.Errorf("failed to display high-scoring keys: %v", err)
 			return
 		}
 	},
 }
 
-// ShowMinimalKeysCmd 显示最简密钥的子命令
+// ShowMinimalKeysCmd the subcommand to display minimal keys
 var ShowMinimalKeysCmd = &cobra.Command{
 	Use:   "minimal",
-	Short: "显示最简密钥",
-	Long:  `显示数据库中字符种类最少的 N 个 PGP 密钥。`,
+	Short: "display minimal keys",
+	Long:  `display the N PGP keys with the fewest characters in the database.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		appInterface := viper.Get("app")
 		appInstance, ok := appInterface.(*app.App)
 		if !ok {
-			log.Error("无法获取应用实例")
+			log.Error("failed to get app instance")
 			return
 		}
 
-		log.Debugf("显示字符种类最少的 %d 个密钥", displayCount)
+		log.Debugf("display the minimal %d keys", displayCount)
 		if err := appInstance.KeyService.ShowMinimalKeys(displayCount); err != nil {
-			log.Errorf("显示最简密钥失败: %v", err)
+			log.Errorf("failed to display minimal keys: %v", err)
 			return
 		}
 	},
 }
 
 func init() {
-	// 添加 show 命令到根命令
+	// add show command to root command
 	RootCmd.AddCommand(ShowCmd)
 
-	// 添加子命令到 show 命令
+	// add subcommands to show command
 	ShowCmd.AddCommand(ShowTopCmd)
 	ShowCmd.AddCommand(ShowMinimalKeysCmd)
 
-	// 为子命令添加共同的 -n 标志
-	ShowTopCmd.Flags().IntVarP(&displayCount, "count", "n", 10, "显示的密钥数量")
-	ShowMinimalKeysCmd.Flags().IntVarP(&displayCount, "count", "n", 10, "显示的密钥数量")
+	// add common -n flag to subcommands
+	ShowTopCmd.Flags().IntVarP(&displayCount, "count", "n", 10, "the number of keys to display")
+	ShowMinimalKeysCmd.Flags().IntVarP(&displayCount, "count", "n", 10, "the number of keys to display")
 }
