@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"gpgenie/internal/config"
@@ -84,11 +85,11 @@ func SerializeKeys(entity *openpgp.Entity, encryptor Encryptor) (string, string,
 
 // DisplayKeys 格式化并显示密钥信息
 func DisplayKeys(keys []models.KeyInfo) {
+	fmt.Println("Fingerprint      Score  Letters Count")
+	fmt.Println("---------------- ------ -------------")
 	for _, key := range keys {
-		fmt.Printf("Fingerprint: %s\n", key.Fingerprint)
-		fmt.Printf("Score: %d\n", key.Score)
-		fmt.Printf("Unique Letters Count: %d\n", key.UniqueLettersCount)
-		fmt.Println("-----")
+		shortFingerprint := strings.ToUpper(key.Fingerprint[len(key.Fingerprint)-16:])
+		fmt.Printf("%-16s %6d %13d\n", shortFingerprint, key.Score, key.UniqueLettersCount)
 	}
 }
 
