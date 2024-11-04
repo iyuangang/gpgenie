@@ -28,7 +28,7 @@ var RootCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		log.Infof("using config file: %s", viper.ConfigFileUsed())
+		log.Debugf("using config file: %s", viper.ConfigFileUsed())
 		viper.Set("app", appInstance)
 	},
 }
