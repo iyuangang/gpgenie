@@ -1,0 +1,97 @@
+name: Build
+
+on:
+  push:
+    branches: [ main, dev ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, dev ]
+
+jobs:
+  build:
+    name: Build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            artifact_name: gpgenie
+            asset_name: gpgenie-linux-amd64
+          - os: windows-latest
+            artifact_name: gpgenie.exe
+            asset_name: gpgenie-windows-amd64.exe
+          - os: macos-latest
+            artifact_name: gpgenie
+            asset_name: gpgenie-darwin-amd64
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.22'
+
+    - name: Install dependencies
+      run: go mod download
+
+    - name: Build
+      run: |
+        go build -v -o ${{ matrix.asset_name }} -ldflags="-s -w" ./cmd/gpgenie/
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: ${{ matrix.asset_name }}
+        path: ${{ matrix.asset_name }}
+
+  build-rocky8:
+    name: Build Rocky 8
+    runs-on: ubuntu-latest
+    container: rockylinux:8
+
+    steps:
+    - name: Install dependencies
+      run: |
+        yum install -y gcc git make
+        curl -L https://go.dev/dl/go1.22.9.linux-amd64.tar.gz | tar -C /usr/local -xzf -
+        export PATH=$PATH:/usr/local/go/bin
+
+    - uses: actions/checkout@v3
+
+    - name: Build
+      run: |
+        rm -rf .git
+        export PATH=$PATH:/usr/local/go/bin
+        go mod download
+        go build -v -o gpgenie-rocky8-amd64 -ldflags="-s -w" ./cmd/gpgenie/
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: gpgenie-rocky8-amd64
+        path: gpgenie-rocky8-amd64
+
+  release:
+    needs: [build, build-rocky8]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v3
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          gpgenie*/*
+        draft: false
+        prerelease: false
+        generate_release_notes: true
