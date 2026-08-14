@@ -19,6 +19,7 @@ type Checkpoint struct {
 	LatestPublicKeyPath        string `json:"latest_public_key_path,omitempty"`
 	LatestEncryptedPrivatePath string `json:"latest_encrypted_private_path,omitempty"`
 	LatestMetadataPath         string `json:"latest_metadata_path,omitempty"`
+	SavedToDatabase            bool   `json:"saved_to_database,omitempty"`
 	UpdatedAt                  string `json:"updated_at"`
 }
 

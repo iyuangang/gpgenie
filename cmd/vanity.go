@@ -10,6 +10,7 @@ import (
 	"github.com/iyuangang/gpgenie/internal/app"
 	"github.com/iyuangang/gpgenie/internal/key/service"
 	"github.com/iyuangang/gpgenie/internal/key/vanity"
+	"github.com/iyuangang/gpgenie/internal/repository"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -25,6 +26,7 @@ var (
 	vanityOutputDir        string
 	vanityCheckpointPath   string
 	vanityResume           bool
+	vanitySaveToDatabase   bool
 	vanityProgressInterval time.Duration
 )
 
@@ -54,6 +56,17 @@ func runVanity(cmd *cobra.Command, _ []string) error {
 	}
 	if vanityTimestampWindow < time.Second {
 		return fmt.Errorf("timestamp-window must be at least one second")
+	}
+	minRun := vanityMinRun
+	if !cmd.Flags().Changed("min-run") && appInstance.Config.Vanity.MinRun != 0 {
+		minRun = appInstance.Config.Vanity.MinRun
+	}
+	if minRun < 1 || minRun > 16 {
+		return fmt.Errorf("min-run must be between 1 and 16")
+	}
+	saveToDatabase := vanitySaveToDatabase
+	if !cmd.Flags().Changed("save-db") {
+		saveToDatabase = appInstance.Config.Vanity.SaveToDatabase
 	}
 	scope := vanity.Scope(vanityScope)
 	if err := scope.Validate(); err != nil {
@@ -106,15 +119,33 @@ func runVanity(cmd *cobra.Command, _ []string) error {
 	}
 	checkpoint.Scope = scope
 	checkpoint.TargetDigits = targetDigits
-	if checkpoint.BestRun >= vanityMinRun {
+	if checkpoint.BestRun >= minRun {
+		if saveToDatabase && !checkpoint.SavedToDatabase {
+			artifacts, err := vanity.LoadArtifacts(
+				checkpoint.LatestPublicKeyPath,
+				checkpoint.LatestEncryptedPrivatePath,
+				checkpoint.LatestMetadataPath,
+			)
+			if err != nil {
+				return fmt.Errorf("reload checkpoint artifacts for database save: %w", err)
+			}
+			if err := saveVanityToDatabase(appInstance.Repository, artifacts); err != nil {
+				return err
+			}
+			checkpoint.SavedToDatabase = true
+			if err := vanity.SaveCheckpoint(checkpointPath, *checkpoint); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "checkpoint vanity key saved to database: fingerprint=%s\n", artifacts.Metadata.SigningSubkeyFingerprint)
+		}
 		fmt.Fprintf(cmd.OutOrStdout(), "checkpoint already contains run=%d key_id=%s\n", checkpoint.BestRun, checkpoint.BestKeyID)
 		return nil
 	}
 
 	fmt.Fprintf(
 		cmd.OutOrStdout(),
-		"vanity search started: workers=%d scope=%s digits=%s target_run=%d timestamp_window=%s previous_attempts=%d\n",
-		workers, scope, targetDigits, vanityMinRun, vanityTimestampWindow, checkpoint.Attempts,
+		"vanity search started: workers=%d scope=%s digits=%s target_run=%d save_db=%t timestamp_window=%s previous_attempts=%d\n",
+		workers, scope, targetDigits, minRun, saveToDatabase, vanityTimestampWindow, checkpoint.Attempts,
 	)
 	fmt.Fprintf(
 		cmd.OutOrStdout(),
@@ -124,7 +155,7 @@ func runVanity(cmd *cobra.Command, _ []string) error {
 
 	searchConfig := vanity.SearchConfig{
 		Workers:          workers,
-		MinRun:           vanityMinRun,
+		MinRun:           minRun,
 		Scope:            scope,
 		AllowedDigits:    allowedDigits,
 		TimestampStart:   uint32(start.Unix()),
@@ -207,8 +238,19 @@ func runVanity(cmd *cobra.Command, _ []string) error {
 	checkpoint.LatestPublicKeyPath = artifacts.PublicKeyPath
 	checkpoint.LatestEncryptedPrivatePath = artifacts.EncryptedPrivatePath
 	checkpoint.LatestMetadataPath = artifacts.MetadataPath
+	checkpoint.SavedToDatabase = false
 	if err := vanity.SaveCheckpoint(checkpointPath, *checkpoint); err != nil {
 		return err
+	}
+	if saveToDatabase {
+		if err := saveVanityToDatabase(appInstance.Repository, artifacts); err != nil {
+			return err
+		}
+		checkpoint.SavedToDatabase = true
+		if err := vanity.SaveCheckpoint(checkpointPath, *checkpoint); err != nil {
+			return err
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "database: saved encrypted vanity key fingerprint=%s\n", artifacts.Metadata.SigningSubkeyFingerprint)
 	}
 
 	fmt.Fprintf(cmd.OutOrStdout(), "vanity signing subkey ready: key_id=%s run=%d digit=%s\n", artifacts.Metadata.SigningKeyID, artifacts.Metadata.RunLength, artifacts.Metadata.RepeatedDigit)
@@ -227,6 +269,17 @@ func checkpointHasSearchState(checkpoint *vanity.Checkpoint) bool {
 	return checkpoint.Attempts > 0 || checkpoint.BestRun > 0 || checkpoint.BestKeyID != ""
 }
 
+func saveVanityToDatabase(repo repository.KeyRepository, artifacts *vanity.Artifacts) error {
+	record, err := artifacts.ToDatabaseKeyInfo()
+	if err != nil {
+		return fmt.Errorf("prepare vanity database record: %w", err)
+	}
+	if err := repo.Upsert(record); err != nil {
+		return fmt.Errorf("save vanity key to database: %w", err)
+	}
+	return nil
+}
+
 func init() {
 	RootCmd.AddCommand(VanityCmd)
 	VanityCmd.Flags().IntVar(&vanityMinRun, "min-run", 8, "stop after finding at least this many repeated hexadecimal digits (1-16)")
@@ -238,5 +291,6 @@ func init() {
 	VanityCmd.Flags().StringVarP(&vanityOutputDir, "output-dir", "o", "./vanity_keys", "directory for generated key artifacts")
 	VanityCmd.Flags().StringVar(&vanityCheckpointPath, "checkpoint", "", "checkpoint file (default: <output-dir>/vanity-checkpoint.json)")
 	VanityCmd.Flags().BoolVar(&vanityResume, "resume", true, "resume attempt and best-run counters from the checkpoint")
+	VanityCmd.Flags().BoolVar(&vanitySaveToDatabase, "save-db", false, "save or update the matched key in the configured database (private key remains encrypted)")
 	VanityCmd.Flags().DurationVar(&vanityProgressInterval, "progress-interval", 5*time.Second, "progress and checkpoint interval")
 }

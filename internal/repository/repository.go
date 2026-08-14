@@ -8,11 +8,13 @@ import (
 	"github.com/iyuangang/gpgenie/models"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // KeyRepository 定义了与 KeyInfo 相关的数据库操作
 type KeyRepository interface {
 	BatchCreate(keys []*models.KeyInfo) error
+	Upsert(key *models.KeyInfo) error
 	GetTopKeys(limit int) ([]models.KeyInfo, error)
 	GetLowLetterCountKeys(limit int) ([]models.KeyInfo, error)
 	GetByFingerprint(lastSixteen string) (*models.KeyInfo, error)
@@ -62,6 +64,22 @@ type keyRepository struct {
 // NewKeyRepository 创建一个新的 KeyRepository 实例
 func NewKeyRepository(db *gorm.DB) KeyRepository {
 	return &keyRepository{db: db}
+}
+
+func (r *keyRepository) Upsert(key *models.KeyInfo) error {
+	if key == nil {
+		return errors.New("key is nil")
+	}
+	return r.db.Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "fingerprint"}},
+		DoUpdates: clause.AssignmentColumns([]string{
+			"fingerprint_suffix", "primary_fingerprint", "public_key", "private_key",
+			"repeat_letter_score", "increasing_letter_score", "decreasing_letter_score",
+			"magic_letter_score", "score", "unique_letters_count", "is_vanity",
+			"vanity_run_length", "vanity_run_start", "vanity_digit", "vanity_scope",
+			"vanity_target_digits", "updated_at",
+		}),
+	}).Create(key).Error
 }
 
 func (r *keyRepository) BatchCreate(keys []*models.KeyInfo) error {

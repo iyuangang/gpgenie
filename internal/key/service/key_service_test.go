@@ -25,6 +25,7 @@ type testRepository struct {
 }
 
 func (r *testRepository) BatchCreate([]*models.KeyInfo) error { return r.batchErr }
+func (r *testRepository) Upsert(*models.KeyInfo) error        { return r.batchErr }
 func (r *testRepository) GetTopKeys(int) ([]models.KeyInfo, error) {
 	return nil, nil
 }

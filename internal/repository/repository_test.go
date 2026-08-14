@@ -7,6 +7,7 @@ import (
 
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
 
@@ -16,6 +17,40 @@ func setupTestDB(t *testing.T) *gorm.DB {
 	err = db.AutoMigrate(&models.KeyInfo{})
 	assert.NoError(t, err)
 	return db
+}
+
+func TestUpsertVanityKeyIsIdempotent(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewKeyRepository(db)
+	record := &models.KeyInfo{
+		Fingerprint:        "0123456789abcdef01234567abc1111111111111",
+		FingerprintSuffix:  "abc1111111111111",
+		PrimaryFingerprint: "fedcba9876543210fedcba9876543210fedcba98",
+		PublicKey:          "public-v1",
+		PrivateKey:         "encrypted-private-v1",
+		IsVanity:           true,
+		VanityRunLength:    12,
+		VanityDigit:        "1",
+		VanityScope:        "suffix",
+		VanityTargetDigits: "018",
+	}
+	require.NoError(t, repo.Upsert(record))
+
+	record.PublicKey = "public-v2"
+	record.VanityRunLength = 13
+	require.NoError(t, repo.Upsert(record))
+
+	got, err := repo.GetByFingerprint(record.FingerprintSuffix)
+	require.NoError(t, err)
+	assert.Equal(t, "public-v2", got.PublicKey)
+	assert.Equal(t, 13, got.VanityRunLength)
+	assert.True(t, got.IsVanity)
+
+	var count int64
+	require.NoError(t, db.Model(&models.KeyInfo{}).
+		Where("fingerprint = ?", record.Fingerprint).
+		Count(&count).Error)
+	assert.Equal(t, int64(1), count)
 }
 
 func TestBatchCreateAndGetTopKeys(t *testing.T) {

@@ -115,10 +115,11 @@ match is found.
 
 ```bash
 gpgenie --config ./config.json vanity \
-  --min-run 8 \
+  --min-run 13 \
   --digits 180 \
   --scope suffix \
   --workers 10 \
+  --save-db \
   --output-dir ./vanity_keys
 ```
 
@@ -129,6 +130,12 @@ Useful options:
 - `--digits 180` only accepts repeated runs made from `0`, `1`, or `8`.
   Compact (`180`) and separated (`1,8,0`) forms are equivalent; the default
   accepts all hexadecimal digits.
+- `--min-run 13` accepts a run of 13 or more repeated digits. The command-line
+  value overrides `vanity.min_run` in the configuration file.
+- `--save-db` upserts the matched signing subkey into the configured database.
+  Only the already encrypted private keyring is stored. Set
+  `vanity.save_to_database` to enable this by default; an explicit
+  `--save-db=false` disables it for one run.
 - `--max-attempts N` applies a bounded search budget. Zero searches until the
   target is found or the process is cancelled.
 - `--timestamp-window 720h` scans the preceding 30 days for each candidate and
@@ -137,13 +144,26 @@ Useful options:
   paths. Resuming starts with fresh random key material and preserves the
   previously encrypted best artifact. Changing `--scope` or `--digits`
   automatically resets incompatible counters while leaving artifacts on disk.
+  If artifact creation succeeded but the database write failed, rerunning with
+  `--save-db` loads those artifacts and retries the write without mining again.
+
+Equivalent configuration:
+
+```json
+"vanity": {
+  "min_run": 13,
+  "save_to_database": true
+}
+```
 
 Every additional repeated hexadecimal digit requires about 16 times as much
 work. An arbitrary repeated suffix of length 8, 9, 10, and 12 needs about
 `2^28`, `2^32`, `2^36`, and `2^44` attempts respectively.
 When `m` target digits are allowed, a suffix of length `n` needs an average of
 `16^n / m` attempts (for example, `--digits 180 --min-run 9` is about 22.9
-billion attempts).
+billion attempts). A 13-digit suffix restricted to three digits averages about
+`1.50e15` attempts, so it can take months even at tens of millions of attempts
+per second.
 
 The output directory contains an ASCII-armored public key, result metadata,
 and a private keyring encrypted to `encryptor_public_key`. Decrypt and import

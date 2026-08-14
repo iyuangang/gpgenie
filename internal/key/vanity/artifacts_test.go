@@ -49,6 +49,28 @@ func TestFinalizeAndWriteProducesEncryptedArtifacts(t *testing.T) {
 	assert.FileExists(t, artifacts.MetadataPath)
 	assert.Equal(t, candidate.KeyIDHex(), artifacts.Metadata.SigningKeyID)
 	assert.Equal(t, "018", artifacts.Metadata.TargetDigits)
+	assert.Equal(t, string(publicData), artifacts.PublicKey)
+	assert.Equal(t, string(privateData), artifacts.EncryptedPrivateKey)
+
+	reloaded, err := LoadArtifacts(
+		artifacts.PublicKeyPath,
+		artifacts.EncryptedPrivatePath,
+		artifacts.MetadataPath,
+	)
+	require.NoError(t, err)
+	record, err := reloaded.ToDatabaseKeyInfo()
+	require.NoError(t, err)
+	assert.Equal(t, strings.ToLower(candidate.FingerprintHex()), record.Fingerprint)
+	assert.Equal(t, strings.ToLower(candidate.KeyIDHex()), record.FingerprintSuffix)
+	assert.Equal(t, strings.ToLower(artifacts.Metadata.PrimaryFingerprint), record.PrimaryFingerprint)
+	assert.Equal(t, string(publicData), record.PublicKey)
+	assert.Equal(t, string(privateData), record.PrivateKey)
+	assert.True(t, record.IsVanity)
+	assert.Equal(t, candidate.Match.RunLength, record.VanityRunLength)
+	assert.Equal(t, candidate.Match.Start, record.VanityRunStart)
+	assert.Equal(t, candidate.RepeatedDigit(), record.VanityDigit)
+	assert.Equal(t, string(ScopeSuffix), record.VanityScope)
+	assert.Equal(t, "018", record.VanityTargetDigits)
 }
 
 func TestCheckpointRoundTrip(t *testing.T) {
@@ -62,6 +84,7 @@ func TestCheckpointRoundTrip(t *testing.T) {
 		LatestPublicKeyPath:    "public.asc",
 		LatestMetadataPath:     "result.json",
 		BestSigningFingerprint: "0123456789ABCDEF01234567ABCDEF1234999999",
+		SavedToDatabase:        true,
 	}
 	require.NoError(t, SaveCheckpoint(path, want))
 
@@ -72,6 +95,7 @@ func TestCheckpointRoundTrip(t *testing.T) {
 	assert.Equal(t, want.BestKeyID, got.BestKeyID)
 	assert.Equal(t, want.Scope, got.Scope)
 	assert.Equal(t, want.TargetDigits, got.TargetDigits)
+	assert.True(t, got.SavedToDatabase)
 	assert.NotEmpty(t, got.UpdatedAt)
 }
 

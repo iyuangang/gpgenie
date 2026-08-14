@@ -11,7 +11,20 @@ type Config struct {
 	Environment   string              `mapstructure:"environment"`
 	Database      DatabaseConfig      `mapstructure:"database"`
 	KeyGeneration KeyGenerationConfig `mapstructure:"key_generation"`
+	Vanity        VanityConfig        `mapstructure:"vanity"`
 	Logging       LoggingConfig       `mapstructure:"logging"`
+}
+
+type VanityConfig struct {
+	MinRun         int  `mapstructure:"min_run"`
+	SaveToDatabase bool `mapstructure:"save_to_database"`
+}
+
+func (c VanityConfig) Validate() error {
+	if c.MinRun != 0 && (c.MinRun < 1 || c.MinRun > 16) {
+		return fmt.Errorf("vanity.min_run must be between 1 and 16")
+	}
+	return nil
 }
 
 type LoggingConfig struct {
@@ -85,6 +98,7 @@ func Load(configPath string) (*Config, error) {
 		"key_generation.max_letters_count", "key_generation.batch_size",
 		"key_generation.name", "key_generation.comment", "key_generation.email",
 		"key_generation.encryptor_public_key",
+		"vanity.min_run", "vanity.save_to_database",
 		"logging.log_level", "logging.log_file",
 	} {
 		if err := v.BindEnv(key); err != nil {
@@ -94,6 +108,9 @@ func Load(configPath string) (*Config, error) {
 
 	var cfg Config
 	if err := v.Unmarshal(&cfg); err != nil {
+		return nil, err
+	}
+	if err := cfg.Vanity.Validate(); err != nil {
 		return nil, err
 	}
 

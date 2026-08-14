@@ -8,6 +8,8 @@
 *.so
 *.dylib
 *.db
+*.db-shm
+*.db-wal
 *.csv
 
 # Test binary, built with `go test -c`

@@ -33,6 +33,8 @@ type Artifacts struct {
 	EncryptedPrivatePath string
 	MetadataPath         string
 	Metadata             ArtifactMetadata
+	PublicKey            string
+	EncryptedPrivateKey  string
 }
 
 func FinalizeAndWrite(
@@ -113,5 +115,7 @@ func FinalizeAndWrite(
 		EncryptedPrivatePath: privatePath,
 		MetadataPath:         metadataPath,
 		Metadata:             metadata,
+		PublicKey:            publicKey,
+		EncryptedPrivateKey:  encryptedPrivateKey,
 	}, nil
 }

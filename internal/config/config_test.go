@@ -30,6 +30,10 @@ func TestLoad(t *testing.T) {
 			"name": "Test Key",
 			"email": "test@example.com"
 		},
+		"vanity": {
+			"min_run": 13,
+			"save_to_database": true
+		},
 		"logging": {
 			"log_level": "info",
 			"log_file": "test.log"
@@ -54,7 +58,18 @@ func TestLoad(t *testing.T) {
 	assert.Equal(t, "sqlite", cfg.Database.Type)
 	assert.Equal(t, "database.internal", cfg.Database.Host)
 	assert.Equal(t, 2, cfg.KeyGeneration.NumGeneratorWorkers)
+	assert.Equal(t, 13, cfg.Vanity.MinRun)
+	assert.True(t, cfg.Vanity.SaveToDatabase)
 	assert.Equal(t, "info", cfg.Logging.LogLevel)
+}
+
+func TestVanityConfigValidate(t *testing.T) {
+	for _, minRun := range []int{0, 1, 13, 16} {
+		require.NoError(t, (VanityConfig{MinRun: minRun}).Validate())
+	}
+	for _, minRun := range []int{-1, 17} {
+		assert.Error(t, (VanityConfig{MinRun: minRun}).Validate())
+	}
 }
 
 func TestKeyGenerationConfigValidate(t *testing.T) {

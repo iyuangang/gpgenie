@@ -21,6 +21,11 @@ func (m *MockKeyRepository) BatchCreate(keys []*models.KeyInfo) error {
 	return args.Error(0)
 }
 
+func (m *MockKeyRepository) Upsert(key *models.KeyInfo) error {
+	args := m.Called(key)
+	return args.Error(0)
+}
+
 func (m *MockKeyRepository) GetTopKeys(limit int) ([]models.KeyInfo, error) {
 	args := m.Called(limit)
 	return args.Get(0).([]models.KeyInfo), args.Error(1)

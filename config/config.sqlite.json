@@ -18,6 +18,10 @@
     "email": "Your Email",
     "encryptor_public_key": "path/to/user/public_key.asc"
   },
+  "vanity": {
+    "min_run": 13,
+    "save_to_database": false
+  },
   "logging": {
     "log_level": "warn",
     "log_file": "gpgenie.log"
