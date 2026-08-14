@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
 # 构建阶段
-FROM golang:1.22-alpine AS builder
+FROM golang:1.26.6-alpine AS builder
 
 ARG VERSION
 ARG COMMIT

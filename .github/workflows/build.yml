@@ -1,98 +1,90 @@
-name: Build
+name: Build and Release
 
 on:
   push:
-    branches: [ main, dev ]
-    tags: [ 'v*' ]
+    branches: [main, dev]
+    tags: ["v*"]
+    paths-ignore:
+      - "**/*.md"
+      - LICENSE
   pull_request:
-    branches: [ main, dev ]
+    branches: [main, dev]
+    paths-ignore:
+      - "**/*.md"
+      - LICENSE
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+env:
+  GOTOOLCHAIN: local
+  GOFLAGS: -mod=readonly
+  CGO_ENABLED: 0
 
 jobs:
   build:
-    name: Build
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        include:
-          - os: ubuntu-latest
-            artifact_name: gpgenie
-            asset_name: gpgenie-linux-amd64
-          - os: windows-latest
-            artifact_name: gpgenie.exe
-            asset_name: gpgenie-windows-amd64.exe
-          - os: macos-latest
-            artifact_name: gpgenie
-            asset_name: gpgenie-darwin-amd64
-
-    steps:
-    - uses: actions/checkout@v7
-
-    - name: Set up Go
-      uses: actions/setup-go@v7
-      with:
-        go-version: '1.22'
-
-    - name: Install dependencies
-      run: go mod download
-
-    - name: Build
-      run: |
-        go build -v -o ${{ matrix.asset_name }} -ldflags="-s -w" ./cmd/gpgenie/
-
-    - name: Upload artifact
-      uses: actions/upload-artifact@v7
-      with:
-        name: ${{ matrix.asset_name }}
-        path: ${{ matrix.asset_name }}
-
-  build-rocky8:
-    name: Build Rocky 8
+    name: Cross-platform build
     runs-on: ubuntu-latest
-    container: rockylinux:8
+    timeout-minutes: 20
 
     steps:
-    - name: Install dependencies
-      run: |
-        yum install -y gcc git make
-        curl -L https://go.dev/dl/go1.22.12.linux-amd64.tar.gz | tar -C /usr/local -xzf -
-        export PATH=$PATH:/usr/local/go/bin
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-    - uses: actions/checkout@v7
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
 
-    - name: Build
-      run: |
-        rm -rf .git
-        export PATH=$PATH:/usr/local/go/bin
-        go mod download
-        go build -v -o gpgenie-rocky8-amd64 -ldflags="-s -w" ./cmd/gpgenie/
+      - name: Verify dependencies
+        run: |
+          go mod download
+          go mod verify
 
-    - name: Upload artifact
-      uses: actions/upload-artifact@v7
-      with:
-        name: gpgenie-rocky8-amd64
-        path: gpgenie-rocky8-amd64
+      - name: Build Linux, Windows, and macOS
+        run: |
+          mkdir -p dist
+          GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o dist/gpgenie-linux-amd64 ./cmd/gpgenie
+          GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o dist/gpgenie-windows-amd64.exe ./cmd/gpgenie
+          GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o dist/gpgenie-darwin-amd64 ./cmd/gpgenie
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gpgenie-binaries-${{ github.run_attempt }}
+          path: dist/gpgenie-*
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
 
   release:
-    needs: [build, build-rocky8]
+    name: GitHub Release
+    needs: build
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
-
+    timeout-minutes: 10
     permissions:
       contents: write
-      packages: write
-      id-token: write
 
     steps:
-    - name: Download all artifacts
-      uses: actions/download-artifact@v8
+      - name: Download binaries
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: gpgenie-binaries-${{ github.run_attempt }}
+          path: dist
 
-    - name: Create Release
-      uses: softprops/action-gh-release@v3
-      with:
-        files: |
-          gpgenie*/*
-        draft: false
-        prerelease: false
-        generate_release_notes: true
+      - name: Create release
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        with:
+          files: dist/gpgenie-*
+          fail_on_unmatched_files: true
+          draft: false
+          prerelease: false
+          generate_release_notes: true

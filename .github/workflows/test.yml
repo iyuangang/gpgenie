@@ -1,40 +1,77 @@
-name: Go Test and Coverage
+name: Test
 
 on:
   push:
-    branches: [ main,dev ]
+    branches: [main, dev]
+    paths-ignore:
+      - "**/*.md"
+      - LICENSE
   pull_request:
-    branches: [ main,dev ]
+    branches: [main, dev]
+    paths-ignore:
+      - "**/*.md"
+      - LICENSE
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GOTOOLCHAIN: local
+  GOFLAGS: -mod=readonly
 
 jobs:
-  build:
-
+  test:
+    name: Go 1.26 tests
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        go-version: [ '1.22', '1.23']
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
-      - uses: actions/checkout@v7
-      - name: Setup Go
-        uses: actions/setup-go@v7
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: ${{ matrix.go-version }}
-      - name: Install dependencies
-        run: go mod download
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Verify dependencies
+        run: |
+          go mod download
+          go mod verify
+
       - name: Vet
         run: go vet ./...
-      - name: Test with Go
+
+      - name: Test with race detector and coverage
         run: |
           set -o pipefail
-          go test -json ./... | tee TestResults-${{ matrix.go-version }}.json
-      - name: Race detector
-        if: matrix.go-version == '1.23'
-        run: go test -race ./...
-      - name: Upload Go test results
-        if: always()
-        uses: actions/upload-artifact@v7
+          go test -race -covermode=atomic -coverprofile=coverage.out -json ./... | tee TestResults.json
+
+      - name: Upload coverage to Codecov
+        if: ${{ !cancelled() && hashFiles('coverage.out') != '' }}
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
-          name: Go-results-${{ matrix.go-version }}
-          path: TestResults-${{ matrix.go-version }}.json
+          files: coverage.out
+          use_oidc: true
+          fail_ci_if_error: true
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: go-test-results-${{ github.run_attempt }}
+          path: |
+            TestResults.json
+            coverage.out
+          if-no-files-found: warn
+          retention-days: 14

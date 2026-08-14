@@ -200,7 +200,7 @@ gpgenie/
 
 ## Tech Stack
 
-- Go 1.21+
+- Go 1.26+
 - GORM (Database ORM)
 - Cobra (CLI framework)
 - Viper (Configuration management)
@@ -231,8 +231,8 @@ go test ./internal/key/domain -v
 go test ./tests/integration -v
 
 # generate test coverage report
-go test ./... -coverprofile=coverage
-go tool cover -html=coverage
+go test ./... -coverprofile=coverage.out
+go tool cover -html=coverage.out
 ```
 
 4. Build

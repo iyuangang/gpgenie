@@ -1,6 +1,8 @@
 module github.com/iyuangang/gpgenie
 
-go 1.22
+go 1.26.0
+
+toolchain go1.26.6
 
 require (
 	github.com/ProtonMail/go-crypto v1.0.0
