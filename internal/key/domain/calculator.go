@@ -2,8 +2,6 @@ package domain
 
 import (
 	"math"
-	"strings"
-	"unsafe"
 )
 
 // Scores 定义了分数结构体
@@ -17,10 +15,9 @@ type Scores struct {
 
 // 使用const提升编译期优化机会
 const (
-	maxSeqLength   = 16
-	baseMultiplier = 100
-	magicScore     = -100
-	minSeqLength   = 3
+	maxSeqLength = 16
+	magicScore   = -100
+	minSeqLength = 3
 )
 
 // 预计算的分数映射表 - 使用const数组提高性能
@@ -62,9 +59,7 @@ func init() {
 	}
 }
 
-// 内联优化的值转换函数
-//
-//go:inline
+// charToValue converts a hexadecimal byte to its numeric value.
 func charToValue(c byte) (int8, bool) {
 	val := charToValueMap[c]
 	return val, val >= 0
@@ -92,23 +87,19 @@ func CalculateScores(line string) (Scores, error) {
 		prevChar           byte
 	)
 
-	// 快速路径：检查魔法序列
-	hasMagicSequence = strings.Contains(line, "49")
-
-	// 主循环 - 使用指针操作避免边界检查
-	ptr := (*[1 << 30]byte)(unsafe.Pointer(unsafe.StringData(line)))[:length:length]
-
 	// 处理第一个字符
-	if val, ok := charToValue(ptr[0]); ok {
+	if val, ok := charToValue(line[0]); ok {
 		uniqueMask |= 1 << uint16(val)
 		uniqueCount = 1
 		prevVal = val
-		prevChar = ptr[0]
+		prevChar = line[0]
 	}
 
-	// 使用展开循环优化性能
 	for i := 1; i < length; i++ {
-		current := ptr[i]
+		current := line[i]
+		if prevChar == '4' && current == '9' {
+			hasMagicSequence = true
+		}
 
 		// 内联字符转换
 		if currentVal := charToValueMap[current]; currentVal >= 0 {
@@ -192,7 +183,6 @@ func CalculateScores(line string) (Scores, error) {
 	}, nil
 }
 
-//go:inline
 func boolToInt(b bool) int {
 	if b {
 		return 1

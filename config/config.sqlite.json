@@ -6,13 +6,11 @@
     "max_idle_conns": 1,
     "conn_max_lifetime": 300
   },
-  "processing": {
-    "batch_size": 1000
-  },
   "key_generation": {
     "num_generator_workers": 10,
     "num_scorer_workers": 1,
     "total_keys": 1000000,
+    "batch_size": 500,
     "min_score": 200,
     "max_letters_count": 5,
     "name": "Your Name",

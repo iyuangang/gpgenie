@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"gpgenie/internal/config"
+	"github.com/iyuangang/gpgenie/internal/config"
 
 	"github.com/ProtonMail/go-crypto/openpgp/packet"
 	"github.com/stretchr/testify/assert"
@@ -63,10 +63,7 @@ func TestGenerateKeyPair(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockEncryptor := new(MockEncryptor)
-			mockEncryptor.On("Encrypt", mock.Anything).Return("encrypted", nil)
-
-			entity, err := GenerateKeyPair(tt.cfg, mockEncryptor)
+			entity, err := GenerateKeyPair(tt.cfg)
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -78,8 +75,6 @@ func TestGenerateKeyPair(t *testing.T) {
 					assert.Equal(t, tt.cfg.Name, entity.PrimaryIdentity().UserId.Name)
 				}
 			}
-
-			mockEncryptor.AssertExpectations(t)
 		})
 	}
 }
@@ -173,13 +168,10 @@ func BenchmarkGenerateKeyPair(b *testing.B) {
 		Email:   "test@example.com",
 		Comment: "Test Key",
 	}
-	mockEncryptor := new(MockEncryptor)
-	mockEncryptor.On("Encrypt", mock.Anything).Return("encrypted", nil)
-
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			entity, err := GenerateKeyPair(cfg, mockEncryptor)
+			entity, err := GenerateKeyPair(cfg)
 			if err != nil {
 				b.Fatal(err)
 			}

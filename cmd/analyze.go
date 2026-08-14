@@ -1,7 +1,9 @@
 package cmd
 
 import (
-	"gpgenie/internal/app"
+	"fmt"
+
+	"github.com/iyuangang/gpgenie/internal/app"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -11,20 +13,19 @@ var AnalyzeCmd = &cobra.Command{
 	Use:   "analyze",
 	Short: "analyze key data",
 	Long:  `Analyze PGP key data in the database, including scoring statistics and correlation analysis.`,
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		appInterface := viper.Get("app")
 		appInstance, ok := appInterface.(*app.App)
 		if !ok {
-			log.Error("failed to get app instance")
-			return
+			return fmt.Errorf("failed to get app instance")
 		}
 
 		if err := appInstance.KeyService.AnalyzeData(); err != nil {
-			log.Errorf("failed to analyze key data: %v", err)
-			return
+			return fmt.Errorf("analyze key data: %w", err)
 		}
 
 		log.Info("key data analysis completed.")
+		return nil
 	},
 }
 

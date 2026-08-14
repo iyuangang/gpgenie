@@ -1,10 +1,11 @@
 package repository
 
 import (
+	"errors"
 	"math"
 	"strings"
 
-	"gpgenie/models"
+	"github.com/iyuangang/gpgenie/models"
 
 	"gorm.io/gorm"
 )
@@ -15,21 +16,7 @@ type KeyRepository interface {
 	GetTopKeys(limit int) ([]models.KeyInfo, error)
 	GetLowLetterCountKeys(limit int) ([]models.KeyInfo, error)
 	GetByFingerprint(lastSixteen string) (*models.KeyInfo, error)
-	GetAll() ([]models.KeyInfo, error)
-	// 统计方法
-	GetScoreStats() (*ScoreStats, error)
-	GetUniqueLettersStats() (*UniqueLettersStats, error)
-	GetScoreComponentsStats() (*ScoreComponentsStats, error)
-	GetCorrelationCoefficient() (float64, error)
-
-	BeginTransaction() RepositoryTransaction
-}
-
-// RepositoryTransaction 定义了事务操作
-type RepositoryTransaction interface {
-	BatchCreate(keys []*models.KeyInfo) error
-	Commit() error
-	Rollback() error
+	GetAnalysisStats() (*AnalysisStats, error)
 }
 
 // ScoreStats 用于存储分数统计数据
@@ -58,6 +45,15 @@ type ScoreComponentsStats struct {
 	AverageMagic      float64 `gorm:"column:average_magic"`
 }
 
+// AnalysisStats contains all aggregates required by the analyze command. The
+// repository populates it with one database scan.
+type AnalysisStats struct {
+	Score         ScoreStats
+	UniqueLetters UniqueLettersStats
+	Components    ScoreComponentsStats
+	Correlation   float64
+}
+
 // keyRepository 是 KeyRepository 的具体实现
 type keyRepository struct {
 	db *gorm.DB
@@ -68,127 +64,120 @@ func NewKeyRepository(db *gorm.DB) KeyRepository {
 	return &keyRepository{db: db}
 }
 
-func (r *keyRepository) BeginTransaction() RepositoryTransaction {
-	tx := r.db.Begin()
-	return &repositoryTransaction{tx: tx}
-}
-
-type repositoryTransaction struct {
-	tx *gorm.DB
-}
-
-func (rt *repositoryTransaction) BatchCreate(keys []*models.KeyInfo) error {
-	return rt.tx.Create(keys).Error
-}
-
-func (rt *repositoryTransaction) Commit() error {
-	return rt.tx.Commit().Error
-}
-
-func (rt *repositoryTransaction) Rollback() error {
-	return rt.tx.Rollback().Error
-}
-
 func (r *keyRepository) BatchCreate(keys []*models.KeyInfo) error {
+	if len(keys) == 0 {
+		return nil
+	}
 	return r.db.Create(keys).Error
 }
 
 func (r *keyRepository) GetTopKeys(limit int) ([]models.KeyInfo, error) {
 	var keys []models.KeyInfo
-	err := r.db.Order("score DESC, unique_letters_count ASC").Limit(limit).Find(&keys).Error
+	err := r.db.Select("fingerprint", "score", "unique_letters_count").
+		Order("score DESC, unique_letters_count ASC").Limit(limit).Find(&keys).Error
 	return keys, err
 }
 
 func (r *keyRepository) GetLowLetterCountKeys(limit int) ([]models.KeyInfo, error) {
 	var keys []models.KeyInfo
-	err := r.db.Order("unique_letters_count ASC, score DESC").Limit(limit).Find(&keys).Error
+	err := r.db.Select("fingerprint", "score", "unique_letters_count").
+		Order("unique_letters_count ASC, score DESC").Limit(limit).Find(&keys).Error
 	return keys, err
 }
 
 func (r *keyRepository) GetByFingerprint(lastSixteen string) (*models.KeyInfo, error) {
 	var keyInfo models.KeyInfo
-	err := r.db.Where("fingerprint LIKE ?", "%"+strings.ToLower(lastSixteen)).First(&keyInfo).Error
+	suffix := strings.ToLower(lastSixteen)
+	if len(suffix) > 16 {
+		suffix = suffix[len(suffix)-16:]
+	}
+	err := r.db.Where("fingerprint_suffix = ?", suffix).First(&keyInfo).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		// Compatibility fallback for databases created before fingerprint_suffix
+		// was introduced. Connect backfills these rows during normal startup.
+		err = r.db.Where("fingerprint LIKE ?", "%"+suffix).First(&keyInfo).Error
+	}
 	if err != nil {
 		return nil, err
 	}
 	return &keyInfo, nil
 }
 
-func (r *keyRepository) GetAll() ([]models.KeyInfo, error) {
-	var keys []models.KeyInfo
-	err := r.db.Find(&keys).Error
-	return keys, err
-}
+func (r *keyRepository) GetAnalysisStats() (*AnalysisStats, error) {
+	type aggregateRow struct {
+		Count             int64   `gorm:"column:count"`
+		ScoreAverage      float64 `gorm:"column:score_average"`
+		ScoreMin          float64 `gorm:"column:score_min"`
+		ScoreMax          float64 `gorm:"column:score_max"`
+		ScoreTotal        float64 `gorm:"column:score_total"`
+		UniqueAverage     float64 `gorm:"column:unique_average"`
+		UniqueMin         float64 `gorm:"column:unique_min"`
+		UniqueMax         float64 `gorm:"column:unique_max"`
+		UniqueTotal       float64 `gorm:"column:unique_total"`
+		AverageRepeat     float64 `gorm:"column:average_repeat"`
+		AverageIncreasing float64 `gorm:"column:average_increasing"`
+		AverageDecreasing float64 `gorm:"column:average_decreasing"`
+		AverageMagic      float64 `gorm:"column:average_magic"`
+		SumXY             float64 `gorm:"column:sum_xy"`
+		SumX2             float64 `gorm:"column:sum_x2"`
+		SumY2             float64 `gorm:"column:sum_y2"`
+	}
 
-func (r *keyRepository) GetScoreStats() (*ScoreStats, error) {
-	var stats ScoreStats
-	err := r.db.Model(&models.KeyInfo{}).
-		Select("AVG(score) as average, MIN(score) as min, MAX(score) as max, SUM(score) as total, COUNT(score) as count").
-		Scan(&stats).Error
+	var row aggregateRow
+	err := r.db.Model(&models.KeyInfo{}).Select(`
+		COUNT(*) AS count,
+		COALESCE(AVG(score), 0) AS score_average,
+		COALESCE(MIN(score), 0) AS score_min,
+		COALESCE(MAX(score), 0) AS score_max,
+		COALESCE(SUM(score), 0) AS score_total,
+		COALESCE(AVG(unique_letters_count), 0) AS unique_average,
+		COALESCE(MIN(unique_letters_count), 0) AS unique_min,
+		COALESCE(MAX(unique_letters_count), 0) AS unique_max,
+		COALESCE(SUM(unique_letters_count), 0) AS unique_total,
+		COALESCE(AVG(repeat_letter_score), 0) AS average_repeat,
+		COALESCE(AVG(increasing_letter_score), 0) AS average_increasing,
+		COALESCE(AVG(decreasing_letter_score), 0) AS average_decreasing,
+		COALESCE(AVG(magic_letter_score), 0) AS average_magic,
+		COALESCE(SUM(1.0 * score * unique_letters_count), 0) AS sum_xy,
+		COALESCE(SUM(1.0 * score * score), 0) AS sum_x2,
+		COALESCE(SUM(1.0 * unique_letters_count * unique_letters_count), 0) AS sum_y2
+	`).Scan(&row).Error
 	if err != nil {
 		return nil, err
 	}
-	return &stats, nil
-}
 
-func (r *keyRepository) GetUniqueLettersStats() (*UniqueLettersStats, error) {
-	var stats UniqueLettersStats
-	err := r.db.Model(&models.KeyInfo{}).
-		Select("AVG(unique_letters_count) as average, MIN(unique_letters_count) as min, MAX(unique_letters_count) as max, SUM(unique_letters_count) as total, COUNT(unique_letters_count) as count").
-		Scan(&stats).Error
-	if err != nil {
-		return nil, err
-	}
-	return &stats, nil
-}
-
-func (r *keyRepository) GetScoreComponentsStats() (*ScoreComponentsStats, error) {
-	var stats ScoreComponentsStats
-	err := r.db.Model(&models.KeyInfo{}).
-		Select("AVG(repeat_letter_score) as average_repeat, AVG(increasing_letter_score) as average_increasing, AVG(decreasing_letter_score) as average_decreasing, AVG(magic_letter_score) as average_magic").
-		Scan(&stats).Error
-	if err != nil {
-		return nil, err
-	}
-	return &stats, nil
-}
-
-func (r *keyRepository) GetCorrelationCoefficient() (float64, error) {
-	var sumX, sumY, sumXY, sumX2, sumY2 float64
-	var count int64
-
-	rows, err := r.db.Model(&models.KeyInfo{}).Select("score, unique_letters_count").Rows()
-	if err != nil {
-		return 0, err
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var score int
-		var uniqueLettersCount int
-		if err := rows.Scan(&score, &uniqueLettersCount); err != nil {
-			return 0, err
+	correlation := 0.0
+	if row.Count > 0 {
+		n := float64(row.Count)
+		numerator := n*row.SumXY - row.ScoreTotal*row.UniqueTotal
+		denominatorSquared := (n*row.SumX2 - row.ScoreTotal*row.ScoreTotal) *
+			(n*row.SumY2 - row.UniqueTotal*row.UniqueTotal)
+		if denominatorSquared > 0 {
+			correlation = numerator / math.Sqrt(denominatorSquared)
 		}
-		x := float64(score)
-		y := float64(uniqueLettersCount)
-		sumX += x
-		sumY += y
-		sumXY += x * y
-		sumX2 += x * x
-		sumY2 += y * y
-		count++
 	}
 
-	if count == 0 {
-		return 0, nil
-	}
-
-	numerator := (float64(count)*sumXY - sumX*sumY)
-	denominator := math.Sqrt((float64(count)*sumX2 - sumX*sumX) * (float64(count)*sumY2 - sumY*sumY))
-	if denominator == 0 {
-		return 0, nil
-	}
-
-	correlation := numerator / denominator
-	return correlation, nil
+	return &AnalysisStats{
+		Score: ScoreStats{
+			Average: row.ScoreAverage,
+			Min:     row.ScoreMin,
+			Max:     row.ScoreMax,
+			Total:   row.ScoreTotal,
+			Count:   row.Count,
+		},
+		UniqueLetters: UniqueLettersStats{
+			Average: row.UniqueAverage,
+			Min:     row.UniqueMin,
+			Max:     row.UniqueMax,
+			Total:   row.UniqueTotal,
+			Count:   row.Count,
+		},
+		Components: ScoreComponentsStats{
+			AverageRepeat:     row.AverageRepeat,
+			AverageIncreasing: row.AverageIncreasing,
+			AverageDecreasing: row.AverageDecreasing,
+			AverageMagic:      row.AverageMagic,
+		},
+		Correlation: correlation,
+	}, nil
 }

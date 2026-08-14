@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"gpgenie/internal/config"
-	"gpgenie/internal/logger"
-	"gpgenie/models"
+	"github.com/iyuangang/gpgenie/internal/config"
+	"github.com/iyuangang/gpgenie/internal/logger"
+	"github.com/iyuangang/gpgenie/models"
 
 	"github.com/ProtonMail/go-crypto/openpgp"
 	"github.com/stretchr/testify/assert"

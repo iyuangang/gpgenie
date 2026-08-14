@@ -23,11 +23,13 @@ all: build
 # Build the project for the current OS and architecture
 build:
 	@echo "Building for current OS and architecture..."
-	$(GO_BUILD) -o $(BUILD_DIR)/$(BINARY_NAME) $(CMD_DIR)/main.go
+	@mkdir -p $(BUILD_DIR)
+	$(GO_BUILD) -trimpath -o $(BUILD_DIR)/$(BINARY_NAME) ./$(CMD_DIR)
 
 # Cross-compile for different OS and architectures
 release:
 	@echo "Cross-compiling for all supported OS and architectures..."
+	@mkdir -p $(BUILD_DIR)
 	GOOS=linux GOARCH=amd64 $(GO_BUILD) -ldflags "-s -w" -o $(BUILD_DIR)/$(BINARY_NAME)-linux-amd64 $(CMD_DIR)/main.go
 	GOOS=linux GOARCH=arm64 $(GO_BUILD) -ldflags "-s -w" -o $(BUILD_DIR)/$(BINARY_NAME)-linux-arm64 $(CMD_DIR)/main.go
 	GOOS=darwin GOARCH=amd64 $(GO_BUILD) -ldflags "-s -w" -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-amd64 $(CMD_DIR)/main.go

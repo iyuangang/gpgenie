@@ -11,21 +11,27 @@ services:
       - "5432:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U youruser -d gpgenie_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   gpgenie:
     build: .
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     volumes:
       - ./config:/app/config
       - ./export:/output
-    command: ["-config", "/app/config/config.json", "-generate-keys"]
+    command: ["--config", "/app/config/config.json", "generate"]
     environment:
-      - DATABASE_HOST=db
-      - DATABASE_PORT=5432
-      - DATABASE_USER=youruser
-      - DATABASE_PASSWORD=yourpassword
-      - DATABASE_DBNAME=gpgenie_db
+      - GPGENIE_DATABASE_HOST=db
+      - GPGENIE_DATABASE_PORT=5432
+      - GPGENIE_DATABASE_USER=youruser
+      - GPGENIE_DATABASE_PASSWORD=yourpassword
+      - GPGENIE_DATABASE_DBNAME=gpgenie_db
 
 volumes:
   db_data:

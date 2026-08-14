@@ -2,19 +2,24 @@ package service
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"sync"
+	"sync/atomic"
+	"time"
 
-	"gpgenie/internal/config"
-	"gpgenie/internal/key/domain"
-	"gpgenie/internal/logger"
-	"gpgenie/internal/repository"
-	"gpgenie/models"
+	"github.com/iyuangang/gpgenie/internal/config"
+	"github.com/iyuangang/gpgenie/internal/key/domain"
+	"github.com/iyuangang/gpgenie/internal/logger"
+	"github.com/iyuangang/gpgenie/internal/repository"
+	"github.com/iyuangang/gpgenie/models"
 
 	"github.com/ProtonMail/go-crypto/openpgp"
 )
 
-// KeyService defines the interface for the key service
+const pipelineBufferMultiplier = 2
+
+// KeyService defines the interface for the key service.
 type KeyService interface {
 	GenerateKeys(ctx context.Context) error
 	ShowTopKeys(n int) error
@@ -23,16 +28,16 @@ type KeyService interface {
 	AnalyzeData() error
 }
 
-// keyService is the implementation of the KeyService interface
 type keyService struct {
 	repo      repository.KeyRepository
-	config    config.KeyGenerationConfig
+	config    *config.KeyGenerationConfig
 	encryptor domain.Encryptor
 	logger    *logger.Logger
 }
 
-// NewKeyService creates a new KeyService instance, passing in the Encryptor interface
-func NewKeyService(repo repository.KeyRepository, cfg config.KeyGenerationConfig, encryptor domain.Encryptor, log *logger.Logger) KeyService {
+// NewKeyService creates a key service. The configuration is kept by reference so
+// command-line overrides applied before GenerateKeys are honored.
+func NewKeyService(repo repository.KeyRepository, cfg *config.KeyGenerationConfig, encryptor domain.Encryptor, log *logger.Logger) KeyService {
 	return &keyService{
 		repo:      repo,
 		config:    cfg,
@@ -41,257 +46,283 @@ func NewKeyService(repo repository.KeyRepository, cfg config.KeyGenerationConfig
 	}
 }
 
-// GenerateKeys generates key pairs
-func (s *keyService) GenerateKeys(ctx context.Context) error {
-	cfg := s.config
-	generatorWorkerCount := cfg.NumGeneratorWorkers
-	scorerWorkerCount := cfg.NumScorerWorkers
-	jobCount := cfg.TotalKeys
-
-	// Channels for pipeline
-	generationJobs := make(chan struct{}, generatorWorkerCount*20)
-	generatedEntities := make(chan *openpgp.Entity, jobCount)
-	scoredKeyInfos := make(chan *models.KeyInfo, scorerWorkerCount*20)
-
-	// Create KeyInfo object pool
-	keyInfoPool := sync.Pool{
-		New: func() interface{} {
-			return &models.KeyInfo{}
-		},
+// GenerateKeys runs a bounded generate -> score -> persist pipeline.
+func (s *keyService) GenerateKeys(parent context.Context) error {
+	if parent == nil {
+		parent = context.Background()
 	}
+
+	cfg := *s.config
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("invalid key generation configuration: %w", err)
+	}
+
+	ctx, cancel := context.WithCancel(parent)
+	defer cancel()
+	startedAt := time.Now()
+
+	generationJobs := make(chan struct{}, cfg.NumGeneratorWorkers*pipelineBufferMultiplier)
+	generatedEntities := make(chan *openpgp.Entity, (cfg.NumGeneratorWorkers+cfg.NumScorerWorkers)*pipelineBufferMultiplier)
+	scoredKeyInfos := make(chan *models.KeyInfo, cfg.NumScorerWorkers*pipelineBufferMultiplier)
 
 	var (
-		wgGenerators sync.WaitGroup
-		wgScorers    sync.WaitGroup
-		errChan      = make(chan error, 1)
+		producerWG   sync.WaitGroup
+		generatorWG  sync.WaitGroup
+		scorerWG     sync.WaitGroup
+		firstErr     error
+		firstErrOnce sync.Once
+		generated    atomic.Uint64
+		accepted     atomic.Uint64
 	)
 
-	// Start Generator Workers
-	for i := 0; i < generatorWorkerCount; i++ {
-		wgGenerators.Add(1)
-		go s.generatorWorker(i, ctx, generationJobs, generatedEntities, &wgGenerators)
-		s.logger.Debugf("Generator Worker %d started.", i)
+	fail := func(err error) {
+		if err == nil {
+			return
+		}
+		firstErrOnce.Do(func() {
+			firstErr = err
+			cancel()
+		})
 	}
 
-	// Start Scorer Workers with object pool
-	for i := 0; i < scorerWorkerCount; i++ {
-		wgScorers.Add(1)
-		go s.scorerWorker(i, ctx, generatedEntities, scoredKeyInfos, &wgScorers, &keyInfoPool)
-		s.logger.Debugf("Scorer Worker %d started.", i)
-	}
-
-	// Optimized Saver Goroutine
-	insertWg := sync.WaitGroup{}
-	insertWg.Add(1)
+	producerWG.Add(1)
 	go func() {
-		defer insertWg.Done()
-
-		localBatch := make([]*models.KeyInfo, 0, cfg.BatchSize)
-		tx := s.repo.BeginTransaction()
-		defer func() {
-			if r := recover(); r != nil {
-				if err := tx.Rollback(); err != nil {
-					select {
-					case errChan <- fmt.Errorf("rollback transaction failed: %v", err):
-					default:
-					}
-				}
-			}
-		}()
-
-		for keyInfo := range scoredKeyInfos {
-			if keyInfo == nil {
-				continue
-			}
-
-			localBatch = append(localBatch, keyInfo)
-			if len(localBatch) >= cfg.BatchSize {
-				s.logger.Infof("Saving %d keys to database.", len(localBatch))
-				if err := tx.BatchCreate(localBatch); err != nil {
-					select {
-					case errChan <- err:
-					default:
-					}
-					return
-				}
-				// Reset batch and preallocate capacity
-				localBatch = make([]*models.KeyInfo, 0, cfg.BatchSize)
-			}
-		}
-
-		// Process remaining keys
-		if len(localBatch) > 0 {
-			s.logger.Infof("Saving %d keys to database.", len(localBatch))
-			if err := tx.BatchCreate(localBatch); err != nil {
-				select {
-				case errChan <- err:
-				default:
-				}
-				return
-			}
-		}
-
-		if err := tx.Commit(); err != nil {
-			select {
-			case errChan <- err:
-			default:
-			}
-		}
-	}()
-
-	// Start Enqueue Generation Jobs
-	go func() {
+		defer producerWG.Done()
 		defer close(generationJobs)
-		for i := 0; i < jobCount; i++ {
+		for i := 0; i < cfg.TotalKeys; i++ {
 			select {
 			case generationJobs <- struct{}{}:
 			case <-ctx.Done():
-				s.logger.Warn("Enqueue Generation Jobs canceled.")
 				return
 			}
 		}
 	}()
 
-	// Wait for Generators to Finish
-	wgGenerators.Wait()
-	close(generatedEntities)
+	for i := 0; i < cfg.NumGeneratorWorkers; i++ {
+		generatorWG.Add(1)
+		go s.generatorWorker(i, ctx, cfg, generationJobs, generatedEntities, &generatorWG, &generated, fail)
+	}
+	go func() {
+		generatorWG.Wait()
+		close(generatedEntities)
+	}()
 
-	// Wait for Scorers to Finish
-	wgScorers.Wait()
-	close(scoredKeyInfos)
+	for i := 0; i < cfg.NumScorerWorkers; i++ {
+		workerEncryptor, err := cloneEncryptor(s.encryptor)
+		if err != nil {
+			fail(fmt.Errorf("initialize scorer worker %d encryptor: %w", i, err))
+			break
+		}
+		scorerWG.Add(1)
+		go s.scorerWorker(i, ctx, cfg, workerEncryptor, generatedEntities, scoredKeyInfos, &scorerWG, &accepted, fail)
+	}
+	go func() {
+		scorerWG.Wait()
+		close(scoredKeyInfos)
+	}()
 
-	// Wait for Saver to Finish
-	insertWg.Wait()
+	saved, persistErr := s.persistBatches(ctx, scoredKeyInfos, cfg.BatchSize)
+	if persistErr != nil {
+		fail(persistErr)
+	}
 
-	s.logger.Info("Key generation process completed.")
+	producerWG.Wait()
+	generatorWG.Wait()
+	scorerWG.Wait()
+
+	if firstErr != nil {
+		return firstErr
+	}
+	if err := parent.Err(); err != nil {
+		return err
+	}
+
+	elapsed := time.Since(startedAt)
+	rate := 0.0
+	if elapsed > 0 {
+		rate = float64(generated.Load()) / elapsed.Seconds()
+	}
+	s.logger.Infof(
+		"Key generation completed: generated=%d accepted=%d saved=%d elapsed=%s rate=%.2f candidates/s.",
+		generated.Load(), accepted.Load(), saved, elapsed.Round(time.Millisecond), rate,
+	)
 	return nil
 }
 
-// generatorWorker is a worker for generating key pairs
-func (s *keyService) generatorWorker(id int, ctx context.Context, jobs <-chan struct{}, output chan<- *openpgp.Entity, wg *sync.WaitGroup) {
-	defer wg.Done()
-	s.logger.Debugf("Generator Worker %d start working.", id)
+func (s *keyService) persistBatches(ctx context.Context, input <-chan *models.KeyInfo, batchSize int) (uint64, error) {
+	batch := make([]*models.KeyInfo, 0, batchSize)
+	var saved uint64
+	flush := func() error {
+		if len(batch) == 0 {
+			return nil
+		}
+		s.logger.Debugf("Saving %d keys to database.", len(batch))
+		if err := s.repo.BatchCreate(batch); err != nil {
+			return fmt.Errorf("save key batch: %w", err)
+		}
+		saved += uint64(len(batch))
+		batch = batch[:0]
+		return nil
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
-			s.logger.Debugf("Generator Worker %d received cancel signal.", id)
+			return saved, ctx.Err()
+		case keyInfo, ok := <-input:
+			if !ok {
+				if err := flush(); err != nil {
+					return saved, err
+				}
+				return saved, nil
+			}
+			if keyInfo == nil {
+				continue
+			}
+			batch = append(batch, keyInfo)
+			if len(batch) >= batchSize {
+				if err := flush(); err != nil {
+					return saved, err
+				}
+			}
+		}
+	}
+}
+
+func (s *keyService) generatorWorker(
+	id int,
+	ctx context.Context,
+	cfg config.KeyGenerationConfig,
+	jobs <-chan struct{},
+	output chan<- *openpgp.Entity,
+	wg *sync.WaitGroup,
+	generated *atomic.Uint64,
+	fail func(error),
+) {
+	defer wg.Done()
+	s.logger.Debugf("Generator Worker %d started.", id)
+
+	for {
+		select {
+		case <-ctx.Done():
 			return
 		case _, ok := <-jobs:
 			if !ok {
-				s.logger.Debugf("Generator Worker %d finished working.", id)
 				return
 			}
-			entity, err := domain.GenerateKeyPair(s.config, s.encryptor)
+			entity, err := domain.GenerateKeyPair(cfg)
 			if err != nil {
-				s.logger.Errorf("Generator Worker %d generate key failed: %v", id, err)
-				continue
+				fail(fmt.Errorf("generator worker %d: %w", id, err))
+				return
 			}
 			select {
 			case output <- entity:
+				generated.Add(1)
 			case <-ctx.Done():
-				s.logger.Debugf("Generator Worker %d received cancel signal.", id)
 				return
 			}
 		}
 	}
 }
 
-// scorerWorker is a worker for scoring and filtering key pairs
-func (s *keyService) scorerWorker(id int, ctx context.Context, input <-chan *openpgp.Entity,
-	output chan<- *models.KeyInfo, wg *sync.WaitGroup, pool *sync.Pool,
+func (s *keyService) scorerWorker(
+	id int,
+	ctx context.Context,
+	cfg config.KeyGenerationConfig,
+	encryptor domain.Encryptor,
+	input <-chan *openpgp.Entity,
+	output chan<- *models.KeyInfo,
+	wg *sync.WaitGroup,
+	accepted *atomic.Uint64,
+	fail func(error),
 ) {
 	defer wg.Done()
-	s.logger.Debugf("Scorer Worker %d start working.", id)
+	s.logger.Debugf("Scorer Worker %d started.", id)
 
 	for {
 		select {
 		case <-ctx.Done():
-			s.logger.Debugf("Scorer Worker %d received cancel signal.", id)
 			return
 		case entity, ok := <-input:
 			if !ok {
-				s.logger.Debugf("Scorer Worker %d finished working.", id)
 				return
 			}
 
-			fingerprint := fmt.Sprintf("%x", entity.PrimaryKey.Fingerprint)
+			fingerprint := hex.EncodeToString(entity.PrimaryKey.Fingerprint[:])
 			lastSixteen := fingerprint[len(fingerprint)-16:]
-
 			scores, err := domain.CalculateScores(lastSixteen)
 			if err != nil {
-				s.logger.Errorf("Scorer Worker %d calculate scores failed: %v", id, err)
-				continue
+				fail(fmt.Errorf("scorer worker %d: calculate score: %w", id, err))
+				return
 			}
 
 			totalScore := scores.RepeatLetterScore + scores.IncreasingLetterScore +
 				scores.DecreasingLetterScore + scores.MagicLetterScore
-
-			if totalScore <= s.config.MinScore && scores.UniqueLettersCount > s.config.MaxLettersCount {
+			if totalScore <= cfg.MinScore && scores.UniqueLettersCount > cfg.MaxLettersCount {
 				continue
 			}
 
-			pubKeyStr, privKeyStr, err := domain.SerializeKeys(entity, s.encryptor)
+			pubKey, privateKey, err := domain.SerializeKeys(entity, encryptor)
 			if err != nil {
-				s.logger.Errorf("Scorer Worker %d serialize keys failed: %v", id, err)
-				continue
+				fail(fmt.Errorf("scorer worker %d: serialize keys: %w", id, err))
+				return
 			}
 
-			// Get KeyInfo from pool
-			keyInfo := pool.Get().(*models.KeyInfo)
-			keyInfo.Fingerprint = fingerprint
-			keyInfo.PublicKey = pubKeyStr
-			keyInfo.PrivateKey = privKeyStr
-			keyInfo.RepeatLetterScore = scores.RepeatLetterScore
-			keyInfo.IncreasingLetterScore = scores.IncreasingLetterScore
-			keyInfo.DecreasingLetterScore = scores.DecreasingLetterScore
-			keyInfo.MagicLetterScore = scores.MagicLetterScore
-			keyInfo.Score = totalScore
-			keyInfo.UniqueLettersCount = scores.UniqueLettersCount
+			keyInfo := &models.KeyInfo{
+				Fingerprint:           fingerprint,
+				FingerprintSuffix:     lastSixteen,
+				PublicKey:             pubKey,
+				PrivateKey:            privateKey,
+				RepeatLetterScore:     scores.RepeatLetterScore,
+				IncreasingLetterScore: scores.IncreasingLetterScore,
+				DecreasingLetterScore: scores.DecreasingLetterScore,
+				MagicLetterScore:      scores.MagicLetterScore,
+				Score:                 totalScore,
+				UniqueLettersCount:    scores.UniqueLettersCount,
+			}
 
 			select {
 			case output <- keyInfo:
+				accepted.Add(1)
 			case <-ctx.Done():
-				pool.Put(keyInfo)
-				s.logger.Debugf("Scorer Worker %d received cancel signal.", id)
 				return
 			}
 		}
 	}
 }
 
-// ShowTopKeys implements the ShowTopKeys method
 func (s *keyService) ShowTopKeys(n int) error {
+	if n <= 0 {
+		return fmt.Errorf("count must be greater than zero")
+	}
 	keys, err := s.repo.GetTopKeys(n)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve top keys: %w", err)
 	}
-
 	domain.DisplayKeys(keys)
 	return nil
 }
 
-// ShowMinimalKeys implements the ShowMinimalKeys method
 func (s *keyService) ShowMinimalKeys(n int) error {
+	if n <= 0 {
+		return fmt.Errorf("count must be greater than zero")
+	}
 	keys, err := s.repo.GetLowLetterCountKeys(n)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve low letter count keys: %w", err)
 	}
-
 	domain.DisplayKeys(keys)
 	return nil
 }
 
-// ExportKeyByFingerprint implements the ExportKeyByFingerprint method
 func (s *keyService) ExportKeyByFingerprint(lastSixteen, outputDir string, exportArmor bool) error {
 	keyInfo, err := s.repo.GetByFingerprint(lastSixteen)
 	if err != nil {
 		return fmt.Errorf("failed to find key: %w", err)
 	}
-
 	return domain.ExportKey(keyInfo, outputDir, exportArmor, s.encryptor, s.logger)
 }
 
-// AnalyzeData implements the AnalyzeData method
 func (s *keyService) AnalyzeData() error {
 	analyzer := domain.NewAnalyzer(s.repo)
 	return analyzer.PerformAnalysis()

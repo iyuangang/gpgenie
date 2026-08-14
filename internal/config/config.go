@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/spf13/viper"
@@ -44,22 +45,55 @@ type KeyGenerationConfig struct {
 	EncryptorPublicKey  string `mapstructure:"encryptor_public_key"`
 }
 
+func (c KeyGenerationConfig) Validate() error {
+	switch {
+	case c.NumGeneratorWorkers <= 0:
+		return fmt.Errorf("num_generator_workers must be greater than zero")
+	case c.NumScorerWorkers <= 0:
+		return fmt.Errorf("num_scorer_workers must be greater than zero")
+	case c.TotalKeys < 0:
+		return fmt.Errorf("total_keys must not be negative")
+	case c.BatchSize <= 0:
+		return fmt.Errorf("batch_size must be greater than zero")
+	case c.MaxLettersCount < 0 || c.MaxLettersCount > 16:
+		return fmt.Errorf("max_letters_count must be between 0 and 16")
+	}
+	return nil
+}
+
 func Load(configPath string) (*Config, error) {
-	viper.SetConfigFile(configPath)
-	viper.SetConfigType("json")
+	v := viper.New()
+	v.SetConfigFile(configPath)
+	v.SetConfigType("json")
 
 	// 读取配置文件
-	if err := viper.ReadInConfig(); err != nil {
+	if err := v.ReadInConfig(); err != nil {
 		return nil, err
 	}
 
 	// 绑定环境变量
-	viper.SetEnvPrefix("GPGENIE")
-	viper.AutomaticEnv()
-	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	v.SetEnvPrefix("GPGENIE")
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	v.AutomaticEnv()
+	for _, key := range []string{
+		"environment",
+		"database.type", "database.host", "database.port", "database.user",
+		"database.password", "database.dbname", "database.max_open_conns",
+		"database.max_idle_conns", "database.conn_max_lifetime", "database.log_level",
+		"key_generation.num_generator_workers", "key_generation.num_scorer_workers",
+		"key_generation.total_keys", "key_generation.min_score",
+		"key_generation.max_letters_count", "key_generation.batch_size",
+		"key_generation.name", "key_generation.comment", "key_generation.email",
+		"key_generation.encryptor_public_key",
+		"logging.log_level", "logging.log_file",
+	} {
+		if err := v.BindEnv(key); err != nil {
+			return nil, fmt.Errorf("bind environment variable %s: %w", key, err)
+		}
+	}
 
 	var cfg Config
-	if err := viper.Unmarshal(&cfg); err != nil {
+	if err := v.Unmarshal(&cfg); err != nil {
 		return nil, err
 	}
 

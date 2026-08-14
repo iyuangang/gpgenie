@@ -97,12 +97,12 @@ gpgenie generate -t 1000 -b 50
 
 ### Show Top Scoring Keys
 ```bash
-gpgenie show-top -n 10
+gpgenie show top -n 10
 ```
 
 ### Show Keys with Least Unique Characters
 ```bash
-gpgenie show-low-letter-count -n 10
+gpgenie show minimal -n 10
 ```
 
 ### Export Specific Key

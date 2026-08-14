@@ -1,9 +1,9 @@
 package cmd
 
 import (
-	"context"
+	"fmt"
 
-	"gpgenie/internal/app"
+	"github.com/iyuangang/gpgenie/internal/app"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -18,12 +18,11 @@ var GenerateCmd = &cobra.Command{
 	Use:   "generate",
 	Short: "generate PGP key pairs",
 	Long:  `Generate a specified number of PGP key pairs according to the configuration and store them in the database.`,
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		appInterface := viper.Get("app")
 		appInstance, ok := appInterface.(*app.App)
 		if !ok {
-			log.Error("failed to get app instance")
-			return
+			return fmt.Errorf("failed to get app instance")
 		}
 
 		// check if the command line parameters are explicitly set
@@ -44,12 +43,12 @@ var GenerateCmd = &cobra.Command{
 		appInstance.Config.KeyGeneration.TotalKeys = totalKeys
 		appInstance.Config.KeyGeneration.BatchSize = batchSize
 
-		if err := appInstance.KeyService.GenerateKeys(context.Background()); err != nil {
-			log.Errorf("failed to generate keys: %v", err)
-			return
+		if err := appInstance.KeyService.GenerateKeys(cmd.Context()); err != nil {
+			return fmt.Errorf("generate keys: %w", err)
 		}
 
 		log.Info("keys generated successfully.")
+		return nil
 	},
 }
 

@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"time"
 
-	"gpgenie/internal/config"
-	"gpgenie/models"
+	"github.com/iyuangang/gpgenie/internal/config"
+	"github.com/iyuangang/gpgenie/models"
 
+	"github.com/glebarez/sqlite"
 	"gorm.io/driver/postgres"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -58,6 +58,17 @@ func Connect(cfg config.DatabaseConfig) (*DB, error) {
 		return nil, fmt.Errorf("failed to migrate database: %w", err)
 	}
 
+	// Backfill the indexed suffix for databases created by earlier versions.
+	var backfillSQL string
+	if cfg.Type == "postgres" {
+		backfillSQL = "UPDATE key_infos SET fingerprint_suffix = RIGHT(LOWER(fingerprint), 16) WHERE fingerprint_suffix IS NULL OR fingerprint_suffix = ''"
+	} else {
+		backfillSQL = "UPDATE key_infos SET fingerprint_suffix = LOWER(SUBSTR(fingerprint, -16)) WHERE fingerprint_suffix IS NULL OR fingerprint_suffix = ''"
+	}
+	if err := db.Exec(backfillSQL).Error; err != nil {
+		return nil, fmt.Errorf("failed to backfill fingerprint suffixes: %w", err)
+	}
+
 	// 获取 sql.DB 对象用于低级操作
 	sqlDB, err := db.DB()
 	if err != nil {
@@ -65,9 +76,14 @@ func Connect(cfg config.DatabaseConfig) (*DB, error) {
 	}
 
 	if cfg.Type == "sqlite" {
-		_, err = sqlDB.Exec("PRAGMA journal_mode=WAL")
-		if err != nil {
+		if _, err = sqlDB.Exec("PRAGMA journal_mode=WAL"); err != nil {
 			return nil, fmt.Errorf("failed to set WAL mode for SQLite: %w", err)
+		}
+		if _, err = sqlDB.Exec("PRAGMA synchronous=NORMAL"); err != nil {
+			return nil, fmt.Errorf("failed to set SQLite synchronous mode: %w", err)
+		}
+		if _, err = sqlDB.Exec("PRAGMA busy_timeout=5000"); err != nil {
+			return nil, fmt.Errorf("failed to set SQLite busy timeout: %w", err)
 		}
 	}
 

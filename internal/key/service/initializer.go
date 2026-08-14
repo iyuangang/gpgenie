@@ -2,13 +2,13 @@
 package service
 
 import (
-	"gpgenie/internal/config"
-	"gpgenie/internal/logger"
-	"gpgenie/internal/repository"
+	"github.com/iyuangang/gpgenie/internal/config"
+	"github.com/iyuangang/gpgenie/internal/logger"
+	"github.com/iyuangang/gpgenie/internal/repository"
 )
 
 // InitializeKeyService initializes the KeyService with all dependencies.
-func InitializeKeyService(cfg config.Config, repo repository.KeyRepository, log *logger.Logger) (KeyService, error) {
+func InitializeKeyService(cfg *config.Config, repo repository.KeyRepository, log *logger.Logger) (KeyService, error) {
 	// Initialize Encryptor
 	encryptor, err := NewPGPEncryptor(cfg.KeyGeneration.EncryptorPublicKey)
 	if err != nil {
@@ -16,6 +16,6 @@ func InitializeKeyService(cfg config.Config, repo repository.KeyRepository, log 
 	}
 
 	// Create KeyService
-	keyService := NewKeyService(repo, cfg.KeyGeneration, encryptor, log)
+	keyService := NewKeyService(repo, &cfg.KeyGeneration, encryptor, log)
 	return keyService, nil
 }

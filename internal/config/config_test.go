@@ -45,12 +45,44 @@ func TestLoad(t *testing.T) {
 	tmpfile.Close()
 
 	// Test loading config
+	t.Setenv("GPGENIE_DATABASE_HOST", "database.internal")
 	cfg, err := Load(tmpfile.Name())
 	require.NoError(t, err)
 
 	// Verify config values
 	assert.Equal(t, "test", cfg.Environment)
 	assert.Equal(t, "sqlite", cfg.Database.Type)
+	assert.Equal(t, "database.internal", cfg.Database.Host)
 	assert.Equal(t, 2, cfg.KeyGeneration.NumGeneratorWorkers)
 	assert.Equal(t, "info", cfg.Logging.LogLevel)
+}
+
+func TestKeyGenerationConfigValidate(t *testing.T) {
+	valid := KeyGenerationConfig{
+		NumGeneratorWorkers: 1,
+		NumScorerWorkers:    1,
+		TotalKeys:           1,
+		BatchSize:           1,
+		MaxLettersCount:     16,
+	}
+	require.NoError(t, valid.Validate())
+
+	tests := []struct {
+		name   string
+		mutate func(*KeyGenerationConfig)
+	}{
+		{"generator workers", func(c *KeyGenerationConfig) { c.NumGeneratorWorkers = 0 }},
+		{"scorer workers", func(c *KeyGenerationConfig) { c.NumScorerWorkers = 0 }},
+		{"total keys", func(c *KeyGenerationConfig) { c.TotalKeys = -1 }},
+		{"batch size", func(c *KeyGenerationConfig) { c.BatchSize = 0 }},
+		{"letter count", func(c *KeyGenerationConfig) { c.MaxLettersCount = 17 }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := valid
+			tt.mutate(&cfg)
+			assert.Error(t, cfg.Validate())
+		})
+	}
 }

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"gpgenie/internal/config"
+	"github.com/iyuangang/gpgenie/internal/config"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

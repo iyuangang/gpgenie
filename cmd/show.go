@@ -1,7 +1,9 @@
 package cmd
 
 import (
-	"gpgenie/internal/app"
+	"fmt"
+
+	"github.com/iyuangang/gpgenie/internal/app"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -21,19 +23,18 @@ var ShowTopCmd = &cobra.Command{
 	Use:   "top",
 	Short: "display the highest-scoring keys",
 	Long:  `display the highest N PGP keys in the database.`,
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		appInterface := viper.Get("app")
 		appInstance, ok := appInterface.(*app.App)
 		if !ok {
-			log.Error("failed to get app instance")
-			return
+			return fmt.Errorf("failed to get app instance")
 		}
 
 		log.Debugf("display the highest %d keys", displayCount)
 		if err := appInstance.KeyService.ShowTopKeys(displayCount); err != nil {
-			log.Errorf("failed to display high-scoring keys: %v", err)
-			return
+			return fmt.Errorf("display high-scoring keys: %w", err)
 		}
+		return nil
 	},
 }
 
@@ -42,19 +43,18 @@ var ShowMinimalKeysCmd = &cobra.Command{
 	Use:   "minimal",
 	Short: "display minimal keys",
 	Long:  `display the N PGP keys with the fewest characters in the database.`,
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		appInterface := viper.Get("app")
 		appInstance, ok := appInterface.(*app.App)
 		if !ok {
-			log.Error("failed to get app instance")
-			return
+			return fmt.Errorf("failed to get app instance")
 		}
 
 		log.Debugf("display the minimal %d keys", displayCount)
 		if err := appInstance.KeyService.ShowMinimalKeys(displayCount); err != nil {
-			log.Errorf("failed to display minimal keys: %v", err)
-			return
+			return fmt.Errorf("display minimal keys: %w", err)
 		}
+		return nil
 	},
 }
 

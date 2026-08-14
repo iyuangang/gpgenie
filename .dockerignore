@@ -1,0 +1,13 @@
+.git
+.github
+build
+coverage*
+export
+exported_keys
+*.db
+*.log
+*.test
+*.out
+*.asc
+*.gpg
+*.pgp

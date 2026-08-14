@@ -1,13 +1,12 @@
 package logger
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
 
-	"gpgenie/internal/config"
+	"github.com/iyuangang/gpgenie/internal/config"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -19,9 +18,8 @@ type AsyncWriteSyncer struct {
 	logChan     chan []byte
 	wg          sync.WaitGroup
 	closeOnce   sync.Once
-	closeCh     chan struct{}
-	buffer      *bytes.Buffer
-	bufferMu    sync.Mutex
+	stateMu     sync.RWMutex
+	closed      bool
 }
 
 // NewAsyncWriteSyncer 创建一个新的 AsyncWriteSyncer
@@ -29,8 +27,6 @@ func NewAsyncWriteSyncer(ws zapcore.WriteSyncer, bufferSize int) *AsyncWriteSync
 	aws := &AsyncWriteSyncer{
 		writeSyncer: ws,
 		logChan:     make(chan []byte, bufferSize),
-		closeCh:     make(chan struct{}),
-		buffer:      bytes.NewBuffer(make([]byte, 0, 4096)), // 预分配缓冲区
 	}
 	aws.wg.Add(1)
 	go aws.run()
@@ -40,94 +36,34 @@ func NewAsyncWriteSyncer(ws zapcore.WriteSyncer, bufferSize int) *AsyncWriteSync
 // run 是后台 goroutine，负责写入日志数据
 func (aws *AsyncWriteSyncer) run() {
 	defer aws.wg.Done()
-	for {
-		select {
-		case p, ok := <-aws.logChan:
-			if !ok {
-				// 在关闭前刷新缓冲区
-				err := aws.flushBuffer()
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Failed to flush buffer: %v\n", err)
-				}
-				return
-			}
-			if err := aws.writeData(p); err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to write log: %v\n", err)
-			}
-		case <-aws.closeCh:
-			// 在关闭前刷新缓冲区
-			if err := aws.flushBuffer(); err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to flush buffer: %v\n", err)
-			}
-			return
+	for p := range aws.logChan {
+		if _, err := aws.writeSyncer.Write(p); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to write log: %v\n", err)
 		}
 	}
-}
-
-// writeData 处理日志数据的写入
-func (aws *AsyncWriteSyncer) writeData(p []byte) error {
-	aws.bufferMu.Lock()
-	defer aws.bufferMu.Unlock()
-
-	// 将数据添加到缓冲区
-	aws.buffer.Write(p)
-
-	// 如果遇到换行符，则写入整行
-	for {
-		line, err := aws.buffer.ReadBytes('\n')
-		if err != nil {
-			// 如果没有完整的行，将数据放回缓冲区
-			aws.buffer.Write(line)
-			break
-		}
-
-		// 写入完整的行
-		if _, err := aws.writeSyncer.Write(line); err != nil {
-			return err
-		}
-	}
-
-	// 如果缓冲区太大，强制刷新
-	if aws.buffer.Len() > 4096 {
-		return aws.flushBuffer()
-	}
-
-	return nil
-}
-
-// flushBuffer 刷新缓冲区中的所有数据
-func (aws *AsyncWriteSyncer) flushBuffer() error {
-	aws.bufferMu.Lock()
-	defer aws.bufferMu.Unlock()
-
-	if aws.buffer.Len() > 0 {
-		data := aws.buffer.Bytes()
-		aws.buffer.Reset()
-		_, err := aws.writeSyncer.Write(data)
-		return err
-	}
-	return nil
 }
 
 // Write 实现 zapcore.WriteSyncer 接口
 func (aws *AsyncWriteSyncer) Write(p []byte) (n int, err error) {
-	// 创建数据副本，避免数据竞争
-	dataCopy := make([]byte, len(p))
-	copy(dataCopy, p)
-
-	select {
-	case aws.logChan <- dataCopy:
-		return len(p), nil
-	case <-aws.closeCh:
+	aws.stateMu.RLock()
+	defer aws.stateMu.RUnlock()
+	if aws.closed {
 		return 0, fmt.Errorf("async writer is closed")
 	}
+
+	dataCopy := make([]byte, len(p))
+	copy(dataCopy, p)
+	aws.logChan <- dataCopy
+	return len(p), nil
 }
 
 // Sync 实现 zapcore.WriteSyncer 接口
 func (aws *AsyncWriteSyncer) Sync() error {
 	aws.closeOnce.Do(func() {
-		close(aws.closeCh)
+		aws.stateMu.Lock()
+		aws.closed = true
 		close(aws.logChan)
+		aws.stateMu.Unlock()
 	})
 	aws.wg.Wait()
 	return aws.writeSyncer.Sync()
@@ -137,12 +73,18 @@ func (aws *AsyncWriteSyncer) Sync() error {
 type Logger struct {
 	*zap.SugaredLogger
 	asyncWriters []*AsyncWriteSyncer
+	logFiles     []*os.File
+	syncOnce     sync.Once
 }
 
 // InitLogger 初始化 Logger
 func InitLogger(cfg *config.LoggingConfig) (*Logger, error) {
 	atomicLevel := zap.NewAtomicLevel()
-	if err := atomicLevel.UnmarshalText([]byte(cfg.LogLevel)); err != nil {
+	logLevel := cfg.LogLevel
+	if logLevel == "" {
+		logLevel = "info"
+	}
+	if err := atomicLevel.UnmarshalText([]byte(logLevel)); err != nil {
 		return nil, fmt.Errorf("invalid log level: %s", cfg.LogLevel)
 	}
 
@@ -154,6 +96,7 @@ func InitLogger(cfg *config.LoggingConfig) (*Logger, error) {
 
 	var cores []zapcore.Core
 	var asyncWriters []*AsyncWriteSyncer
+	var logFiles []*os.File
 
 	// 控制台输出
 	consoleEncoder := zapcore.NewConsoleEncoder(encoderConfig)
@@ -175,6 +118,7 @@ func InitLogger(cfg *config.LoggingConfig) (*Logger, error) {
 
 		fileEncoder := zapcore.NewJSONEncoder(encoderConfig)
 		fileWS := zapcore.AddSync(logFile)
+		logFiles = append(logFiles, logFile)
 		fileAsyncWS := NewAsyncWriteSyncer(fileWS, 10000)
 		asyncWriters = append(asyncWriters, fileAsyncWS)
 		cores = append(cores, zapcore.NewCore(fileEncoder, fileAsyncWS, atomicLevel))
@@ -186,19 +130,27 @@ func InitLogger(cfg *config.LoggingConfig) (*Logger, error) {
 	return &Logger{
 		SugaredLogger: logger.Sugar(),
 		asyncWriters:  asyncWriters,
+		logFiles:      logFiles,
 	}, nil
 }
 
 // SyncLogger 同步日志
 func (l *Logger) SyncLogger() {
-	for _, writer := range l.asyncWriters {
-		if err := writer.Sync(); err != nil && !isStdoutSyncError(err) {
+	l.syncOnce.Do(func() {
+		for _, writer := range l.asyncWriters {
+			if err := writer.Sync(); err != nil && !isStdoutSyncError(err) {
+				fmt.Fprintf(os.Stderr, "Failed to sync logger: %v\n", err)
+			}
+		}
+		if err := l.Sync(); err != nil && !isStdoutSyncError(err) {
 			fmt.Fprintf(os.Stderr, "Failed to sync logger: %v\n", err)
 		}
-	}
-	if err := l.Sync(); err != nil && !isStdoutSyncError(err) {
-		fmt.Fprintf(os.Stderr, "Failed to sync logger: %v\n", err)
-	}
+		for _, file := range l.logFiles {
+			if err := file.Close(); err != nil {
+				fmt.Fprintf(os.Stderr, "Failed to close log file: %v\n", err)
+			}
+		}
+	})
 }
 
 func isStdoutSyncError(err error) bool {

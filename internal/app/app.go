@@ -3,11 +3,11 @@ package app
 import (
 	"fmt"
 
-	"gpgenie/internal/config"
-	"gpgenie/internal/database"
-	"gpgenie/internal/key/service"
-	"gpgenie/internal/logger"
-	"gpgenie/internal/repository"
+	"github.com/iyuangang/gpgenie/internal/config"
+	"github.com/iyuangang/gpgenie/internal/database"
+	"github.com/iyuangang/gpgenie/internal/key/service"
+	"github.com/iyuangang/gpgenie/internal/logger"
+	"github.com/iyuangang/gpgenie/internal/repository"
 )
 
 type App struct {
@@ -36,6 +36,7 @@ func NewApp(configPath string) (*App, error) {
 	db, err := database.Connect(cfg.Database)
 	if err != nil {
 		log.Errorf("failed to connect to database: %v", err)
+		log.SyncLogger()
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
@@ -43,8 +44,10 @@ func NewApp(configPath string) (*App, error) {
 	repo := repository.NewKeyRepository(db.DB)
 
 	// 初始化 KeyService，并注入 Encryptor
-	keyService, err := service.InitializeKeyService(*cfg, repo, log)
+	keyService, err := service.InitializeKeyService(cfg, repo, log)
 	if err != nil {
+		_ = db.Close()
+		log.SyncLogger()
 		return nil, fmt.Errorf("failed to initialize KeyService: %w", err)
 	}
 
@@ -58,5 +61,11 @@ func NewApp(configPath string) (*App, error) {
 }
 
 func (a *App) Close() error {
-	return a.DB.Close()
+	if a.Logger != nil {
+		a.Logger.SyncLogger()
+	}
+	if a.DB != nil {
+		return a.DB.Close()
+	}
+	return nil
 }

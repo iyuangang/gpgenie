@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"gpgenie/internal/config"
-	"gpgenie/internal/logger"
-	"gpgenie/models"
+	"github.com/iyuangang/gpgenie/internal/config"
+	"github.com/iyuangang/gpgenie/internal/logger"
+	"github.com/iyuangang/gpgenie/models"
 
 	"github.com/ProtonMail/go-crypto/openpgp"
 	"github.com/ProtonMail/go-crypto/openpgp/armor"
@@ -88,7 +88,7 @@ func DisplayKeys(keys []models.KeyInfo) {
 	fmt.Println("Fingerprint      Score  Letters Count")
 	fmt.Println("---------------- ------ -------------")
 	for _, key := range keys {
-		shortFingerprint := strings.ToUpper(key.Fingerprint[len(key.Fingerprint)-16:])
+		shortFingerprint := strings.ToUpper(GetLastSixteen(key.Fingerprint))
 		fmt.Printf("%-16s %6d %13d\n", shortFingerprint, key.Score, key.UniqueLettersCount)
 	}
 }

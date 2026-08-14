@@ -3,7 +3,7 @@ package domain
 import (
 	"fmt"
 
-	"gpgenie/internal/repository"
+	"github.com/iyuangang/gpgenie/internal/repository"
 )
 
 type Analyzer struct {
@@ -15,79 +15,38 @@ func NewAnalyzer(repo repository.KeyRepository) *Analyzer {
 }
 
 func (a *Analyzer) PerformAnalysis() error {
-	if err := a.analyzeScores(); err != nil {
-		return err
-	}
-	if err := a.analyzeUniqueLettersCount(); err != nil {
-		return err
-	}
-	if err := a.analyzeScoreComponents(); err != nil {
-		return err
-	}
-	if err := a.analyzeCorrelation(); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (a *Analyzer) analyzeScores() error {
-	stats, err := a.repo.GetScoreStats()
+	stats, err := a.repo.GetAnalysisStats()
 	if err != nil {
-		return fmt.Errorf("failed to get score statistics: %w", err)
+		return fmt.Errorf("failed to get analysis statistics: %w", err)
 	}
 
 	fmt.Println("=== Score Analysis ===")
-	fmt.Printf("Total Keys: %d\n", stats.Count)
-	fmt.Printf("Average Score: %.2f\n", stats.Average)
-	fmt.Printf("Minimum Score: %.2f\n", stats.Min)
-	fmt.Printf("Maximum Score: %.2f\n", stats.Max)
+	fmt.Printf("Total Keys: %d\n", stats.Score.Count)
+	fmt.Printf("Average Score: %.2f\n", stats.Score.Average)
+	fmt.Printf("Minimum Score: %.2f\n", stats.Score.Min)
+	fmt.Printf("Maximum Score: %.2f\n", stats.Score.Max)
 	fmt.Println()
-	return nil
-}
-
-func (a *Analyzer) analyzeUniqueLettersCount() error {
-	stats, err := a.repo.GetUniqueLettersStats()
-	if err != nil {
-		return fmt.Errorf("failed to get unique letters count statistics: %w", err)
-	}
 
 	fmt.Println("=== Unique Letters Count Analysis ===")
-	fmt.Printf("Total Keys: %d\n", stats.Count)
-	fmt.Printf("Average Unique Letters Count: %.2f\n", stats.Average)
-	fmt.Printf("Minimum Unique Letters Count: %.2f\n", stats.Min)
-	fmt.Printf("Maximum Unique Letters Count: %.2f\n", stats.Max)
+	fmt.Printf("Total Keys: %d\n", stats.UniqueLetters.Count)
+	fmt.Printf("Average Unique Letters Count: %.2f\n", stats.UniqueLetters.Average)
+	fmt.Printf("Minimum Unique Letters Count: %.2f\n", stats.UniqueLetters.Min)
+	fmt.Printf("Maximum Unique Letters Count: %.2f\n", stats.UniqueLetters.Max)
 	fmt.Println()
-	return nil
-}
-
-func (a *Analyzer) analyzeScoreComponents() error {
-	stats, err := a.repo.GetScoreComponentsStats()
-	if err != nil {
-		return fmt.Errorf("failed to get score components statistics: %w", err)
-	}
 
 	fmt.Println("=== Score Components Analysis ===")
-	fmt.Printf("Average Repeat Letter Score: %.2f\n", stats.AverageRepeat)
-	fmt.Printf("Average Increasing Letter Score: %.2f\n", stats.AverageIncreasing)
-	fmt.Printf("Average Decreasing Letter Score: %.2f\n", stats.AverageDecreasing)
-	fmt.Printf("Average Magic Letter Score: %.2f\n", stats.AverageMagic)
+	fmt.Printf("Average Repeat Letter Score: %.2f\n", stats.Components.AverageRepeat)
+	fmt.Printf("Average Increasing Letter Score: %.2f\n", stats.Components.AverageIncreasing)
+	fmt.Printf("Average Decreasing Letter Score: %.2f\n", stats.Components.AverageDecreasing)
+	fmt.Printf("Average Magic Letter Score: %.2f\n", stats.Components.AverageMagic)
 	fmt.Println()
-	return nil
-}
-
-func (a *Analyzer) analyzeCorrelation() error {
-	correlation, err := a.repo.GetCorrelationCoefficient()
-	if err != nil {
-		return fmt.Errorf("failed to calculate correlation coefficient: %w", err)
-	}
 
 	fmt.Println("=== Correlation Analysis ===")
-	fmt.Printf("Pearson Correlation Coefficient between Score and Unique Letters Count: %.4f\n", correlation)
+	fmt.Printf("Pearson Correlation Coefficient between Score and Unique Letters Count: %.4f\n", stats.Correlation)
 	switch {
-	case correlation > 0.7 || correlation < -0.7:
+	case stats.Correlation > 0.7 || stats.Correlation < -0.7:
 		fmt.Println("Interpretation: Strong correlation detected.")
-	case correlation > 0.4 || correlation < -0.4:
+	case stats.Correlation > 0.4 || stats.Correlation < -0.4:
 		fmt.Println("Interpretation: Moderate correlation detected.")
 	default:
 		fmt.Println("Interpretation: Weak or no correlation detected.")

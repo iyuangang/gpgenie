@@ -3,7 +3,7 @@ package database
 import (
 	"testing"
 
-	"gpgenie/internal/config"
+	"github.com/iyuangang/gpgenie/internal/config"
 
 	"github.com/stretchr/testify/assert"
 )

@@ -1,9 +1,10 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
 
-	"gpgenie/internal/app"
+	"github.com/iyuangang/gpgenie/internal/app"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -19,20 +20,19 @@ var ExportCmd = &cobra.Command{
 	Use:   "export",
 	Short: "export key by fingerprint",
 	Long:  `Export PGP keys by fingerprint to the specified directory.`,
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		appInterface := viper.Get("app")
 		appInstance, ok := appInterface.(*app.App)
 		if !ok {
-			log.Error("failed to get app instance")
-			return
+			return fmt.Errorf("failed to get app instance")
 		}
 
 		if err := appInstance.KeyService.ExportKeyByFingerprint(exportFingerprint, exportOutputDir, exportArmor); err != nil {
-			log.Errorf("failed to export key: %v", err)
-			return
+			return fmt.Errorf("export key: %w", err)
 		}
 
 		log.Info("key exported successfully.")
+		return nil
 	},
 }
 

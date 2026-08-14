@@ -1,9 +1,15 @@
 package main
 
 import (
-	"gpgenie/cmd"
+	"context"
+	"os/signal"
+	"syscall"
+
+	"github.com/iyuangang/gpgenie/cmd"
 )
 
 func main() {
-	cmd.Execute()
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	cmd.Execute(ctx)
 }

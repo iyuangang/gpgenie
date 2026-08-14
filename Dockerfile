@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1.7
+
 # 构建阶段
 FROM golang:1.22-alpine AS builder
 
@@ -14,23 +16,23 @@ WORKDIR /app
 COPY go.mod go.sum ./
 
 # 下载依赖
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
 # 复制源代码
 COPY . .
 
 # 构建应用
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s -X main.Version=${VERSION} -X main.Commit=${COMMIT}" -a -installsuffix cgo -o gpgenie ./cmd/gpgenie
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-w -s -X main.Version=${VERSION} -X main.Commit=${COMMIT}" -o gpgenie ./cmd/gpgenie
 
 # 最终阶段
-FROM scratch
+FROM alpine:3.20
 
-# 从 builder 阶段复制 ca-certificates
-COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
+RUN apk add --no-cache ca-certificates tzdata
 ENV TZ=Asia/Shanghai
 
-WORKDIR /root/
+WORKDIR /app
 
 # 从构建器阶段复制二进制文件
 COPY --from=builder /app/gpgenie .

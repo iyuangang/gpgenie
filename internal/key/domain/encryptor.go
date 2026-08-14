@@ -5,3 +5,10 @@ package domain
 type Encryptor interface {
 	Encrypt(plaintext string) (string, error)
 }
+
+// CloneableEncryptor can create an independent encryptor for a worker. This
+// avoids serializing otherwise independent encryption operations behind a lock.
+type CloneableEncryptor interface {
+	Encryptor
+	Clone() (Encryptor, error)
+}

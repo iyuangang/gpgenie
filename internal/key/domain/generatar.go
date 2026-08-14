@@ -6,14 +6,14 @@ import (
 	"fmt"
 	"time"
 
-	"gpgenie/internal/config"
+	"github.com/iyuangang/gpgenie/internal/config"
 
 	"github.com/ProtonMail/go-crypto/openpgp"
 	"github.com/ProtonMail/go-crypto/openpgp/packet"
 )
 
 // GenerateKeyPair 生成一个密钥对
-func GenerateKeyPair(cfg config.KeyGenerationConfig, encryptor Encryptor) (*openpgp.Entity, error) {
+func GenerateKeyPair(cfg config.KeyGenerationConfig) (*openpgp.Entity, error) {
 	entity, err := NewEntity(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create entity: %w", err)
