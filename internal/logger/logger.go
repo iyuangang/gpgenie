@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -154,5 +155,6 @@ func (l *Logger) SyncLogger() {
 }
 
 func isStdoutSyncError(err error) bool {
-	return err.Error() == "sync /dev/stdout: The handle is invalid."
+	var pathErr *os.PathError
+	return errors.As(err, &pathErr) && pathErr.Op == "sync" && pathErr.Path == os.Stdout.Name()
 }

@@ -72,7 +72,11 @@ func TestGnuPGImportsAndSignsWithGeneratedKeyring(t *testing.T) {
 	privatePath := filepath.Join(t.TempDir(), "vanity-private.asc")
 	require.NoError(t, os.WriteFile(privatePath, privateArmor.Bytes(), 0o600))
 
-	command := exec.Command(gpgPath, "--batch", "--homedir", gnupgHome, "--import-options", "show-only", "--import", publicPath)
+	command := exec.Command(
+		gpgPath,
+		"--batch", "--homedir", gnupgHome,
+		"--with-subkey-fingerprint", "--import-options", "show-only", "--import", publicPath,
+	)
 	output, err := command.CombinedOutput()
 	require.NoError(t, err, string(output))
 	assert.Contains(t, string(output), candidate.KeyIDHex())

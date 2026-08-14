@@ -2,6 +2,7 @@ package logger
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -211,6 +212,20 @@ func TestLogger_Logging(t *testing.T) {
 	assert.Contains(t, string(content), "info message")
 	assert.Contains(t, string(content), "warn message")
 	assert.Contains(t, string(content), "error message")
+}
+
+func TestIsStdoutSyncError(t *testing.T) {
+	assert.True(t, isStdoutSyncError(&os.PathError{
+		Op:   "sync",
+		Path: os.Stdout.Name(),
+		Err:  errors.New("unsupported by pipe"),
+	}))
+	assert.False(t, isStdoutSyncError(&os.PathError{
+		Op:   "sync",
+		Path: filepath.Join(t.TempDir(), "log.txt"),
+		Err:  errors.New("disk error"),
+	}))
+	assert.False(t, isStdoutSyncError(errors.New("unrelated error")))
 }
 
 // Benchmark tests

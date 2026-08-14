@@ -12,6 +12,7 @@ jobs:
     name: Build
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         include:
@@ -26,10 +27,10 @@ jobs:
             asset_name: gpgenie-darwin-amd64
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v7
 
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v7
       with:
         go-version: '1.22'
 
@@ -41,7 +42,7 @@ jobs:
         go build -v -o ${{ matrix.asset_name }} -ldflags="-s -w" ./cmd/gpgenie/
 
     - name: Upload artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v7
       with:
         name: ${{ matrix.asset_name }}
         path: ${{ matrix.asset_name }}
@@ -55,10 +56,10 @@ jobs:
     - name: Install dependencies
       run: |
         yum install -y gcc git make
-        curl -L https://go.dev/dl/go1.22.9.linux-amd64.tar.gz | tar -C /usr/local -xzf -
+        curl -L https://go.dev/dl/go1.22.12.linux-amd64.tar.gz | tar -C /usr/local -xzf -
         export PATH=$PATH:/usr/local/go/bin
 
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v7
 
     - name: Build
       run: |
@@ -68,7 +69,7 @@ jobs:
         go build -v -o gpgenie-rocky8-amd64 -ldflags="-s -w" ./cmd/gpgenie/
 
     - name: Upload artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v7
       with:
         name: gpgenie-rocky8-amd64
         path: gpgenie-rocky8-amd64
@@ -85,10 +86,10 @@ jobs:
 
     steps:
     - name: Download all artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v8
 
     - name: Create Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v3
       with:
         files: |
           gpgenie*/*

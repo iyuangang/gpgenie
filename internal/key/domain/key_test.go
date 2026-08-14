@@ -149,10 +149,13 @@ func TestDisplayKeys(t *testing.T) {
 
 func TestExportKey(t *testing.T) {
 	tempDir := t.TempDir()
+	blockedPath := filepath.Join(tempDir, "not-a-directory")
+	require.NoError(t, os.WriteFile(blockedPath, []byte("file"), 0o600))
 	log, err := logger.InitLogger(&config.LoggingConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(log.SyncLogger)
 
 	key := &models.KeyInfo{
 		Fingerprint: "TEST123",
@@ -190,12 +193,12 @@ func TestExportKey(t *testing.T) {
 		},
 		{
 			name:        "invalid output directory",
-			outputDir:   "/invalid/path",
+			outputDir:   filepath.Join(blockedPath, "child"),
 			exportArmor: true,
 			setupMock: func() *MockEncryptor {
 				return new(MockEncryptor)
 			},
-			wantErr: false,
+			wantErr: true,
 		},
 	}
 
