@@ -105,6 +105,61 @@ The selected OpenPGP key must include an encryption-capable key or subkey.
 gpgenie generate -t 1000 -b 50
 ```
 
+### Mine a Vanity Git Signing Subkey
+
+`vanity` searches the real 16-hex-digit OpenPGP v4 long key ID and builds a
+normal Ed25519 primary key with a cross-certified Ed25519 signing subkey. The
+search hot path reuses each public key across a timestamp window, hashes raw
+OpenPGP fingerprint material, and creates the complete keyring only after a
+match is found.
+
+```bash
+gpgenie --config ./config.json vanity \
+  --min-run 8 \
+  --digits 180 \
+  --scope suffix \
+  --workers 10 \
+  --output-dir ./vanity_keys
+```
+
+Useful options:
+
+- `--scope suffix` matches a repeated suffix like `99999999`; `any` accepts a
+  repeated run anywhere in the 16 displayed digits.
+- `--digits 180` only accepts repeated runs made from `0`, `1`, or `8`.
+  Compact (`180`) and separated (`1,8,0`) forms are equivalent; the default
+  accepts all hexadecimal digits.
+- `--max-attempts N` applies a bounded search budget. Zero searches until the
+  target is found or the process is cancelled.
+- `--timestamp-window 720h` scans the preceding 30 days for each candidate and
+  therefore records the generated primary key at the beginning of that range.
+- `--checkpoint PATH` persists total attempts, the best run, and latest output
+  paths. Resuming starts with fresh random key material and preserves the
+  previously encrypted best artifact. Changing `--scope` or `--digits`
+  automatically resets incompatible counters while leaving artifacts on disk.
+
+Every additional repeated hexadecimal digit requires about 16 times as much
+work. An arbitrary repeated suffix of length 8, 9, 10, and 12 needs about
+`2^28`, `2^32`, `2^36`, and `2^44` attempts respectively.
+When `m` target digits are allowed, a suffix of length `n` needs an average of
+`16^n / m` attempts (for example, `--digits 180 --min-run 9` is about 22.9
+billion attempts).
+
+The output directory contains an ASCII-armored public key, result metadata,
+and a private keyring encrypted to `encryptor_public_key`. Decrypt and import
+the private artifact locally:
+
+```bash
+gpg --output vanity-private.asc --decrypt gpgenie-KEYID-private.asc.pgp
+gpg --import vanity-private.asc
+gpg --with-subkey-fingerprint --list-secret-keys
+git config --global user.signingkey "FULL_SIGNING_SUBKEY_FINGERPRINT!"
+git config --global commit.gpgsign true
+```
+
+Use an email address in `key_generation.email` that is verified on GitHub.
+Never commit the encrypted or decrypted private artifact to source control.
+
 ### Show Top Scoring Keys
 ```bash
 gpgenie show top -n 10

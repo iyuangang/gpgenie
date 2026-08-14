@@ -39,3 +39,6 @@ config.json
 
 # build folder
 build/
+
+# vanity key output
+vanity_keys/
