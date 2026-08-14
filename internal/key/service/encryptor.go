@@ -11,6 +11,8 @@ import (
 	"github.com/ProtonMail/go-crypto/openpgp/armor"
 )
 
+const armoredPublicKeyHeader = "-----BEGIN PGP PUBLIC KEY BLOCK-----"
+
 // PGPEncryptor is the concrete implementation of the Encryptor interface using OpenPGP for encryption
 type PGPEncryptor struct {
 	entity        *openpgp.Entity
@@ -28,6 +30,19 @@ func NewPGPEncryptor(publicKeyPath string) (*PGPEncryptor, error) {
 }
 
 func newPGPEncryptor(publicKeyData []byte) (*PGPEncryptor, error) {
+	trimmedKey := bytes.TrimSpace(publicKeyData)
+	if len(trimmedKey) == 0 {
+		return nil, fmt.Errorf("public key file is empty; expected an ASCII-armored OpenPGP public key beginning with %q", armoredPublicKeyHeader)
+	}
+
+	if isOpenSSHPublicKey(trimmedKey) {
+		return nil, fmt.Errorf("configured key is an OpenSSH public key; GPGenie requires an ASCII-armored OpenPGP public key beginning with %q (do not use a .ssh/*.pub key)", armoredPublicKeyHeader)
+	}
+
+	if !bytes.HasPrefix(trimmedKey, []byte(armoredPublicKeyHeader)) {
+		return nil, fmt.Errorf("unsupported public key format; expected an ASCII-armored OpenPGP public key beginning with %q", armoredPublicKeyHeader)
+	}
+
 	entities, err := openpgp.ReadArmoredKeyRing(bytes.NewReader(publicKeyData))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse public key: %w", err)
@@ -41,6 +56,12 @@ func newPGPEncryptor(publicKeyData []byte) (*PGPEncryptor, error) {
 		entity:        entities[0],
 		publicKeyData: append([]byte(nil), publicKeyData...),
 	}, nil
+}
+
+func isOpenSSHPublicKey(publicKeyData []byte) bool {
+	return bytes.HasPrefix(publicKeyData, []byte("ssh-")) ||
+		bytes.HasPrefix(publicKeyData, []byte("ecdsa-")) ||
+		bytes.HasPrefix(publicKeyData, []byte("sk-"))
 }
 
 // Clone creates a worker-local parsed entity so encryption workers do not share
