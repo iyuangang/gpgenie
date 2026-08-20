@@ -32,7 +32,11 @@ func TestLoad(t *testing.T) {
 		},
 		"vanity": {
 			"min_run": 13,
-			"save_to_database": true
+			"save_to_database": true,
+			"backend": "opencl",
+			"opencl_devices": "0,1",
+			"gpu_key_batch": 128,
+			"gpu_work_items": 1048576
 		},
 		"logging": {
 			"log_level": "info",
@@ -60,6 +64,10 @@ func TestLoad(t *testing.T) {
 	assert.Equal(t, 2, cfg.KeyGeneration.NumGeneratorWorkers)
 	assert.Equal(t, 13, cfg.Vanity.MinRun)
 	assert.True(t, cfg.Vanity.SaveToDatabase)
+	assert.Equal(t, "opencl", cfg.Vanity.Backend)
+	assert.Equal(t, "0,1", cfg.Vanity.OpenCLDevices)
+	assert.Equal(t, 128, cfg.Vanity.GPUKeyBatch)
+	assert.Equal(t, uint64(1048576), cfg.Vanity.GPUWorkItems)
 	assert.Equal(t, "info", cfg.Logging.LogLevel)
 }
 
@@ -70,6 +78,10 @@ func TestVanityConfigValidate(t *testing.T) {
 	for _, minRun := range []int{-1, 17} {
 		assert.Error(t, (VanityConfig{MinRun: minRun}).Validate())
 	}
+	assert.Error(t, (VanityConfig{Backend: "cuda"}).Validate())
+	assert.Error(t, (VanityConfig{GPUKeyBatch: -1}).Validate())
+	assert.Error(t, (VanityConfig{GPUKeyBatch: 65537}).Validate())
+	assert.Error(t, (VanityConfig{GPUWorkItems: 1 << 27}).Validate())
 }
 
 func TestKeyGenerationConfigValidate(t *testing.T) {

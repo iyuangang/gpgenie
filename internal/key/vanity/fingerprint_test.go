@@ -82,3 +82,12 @@ func BenchmarkFingerprintAndSuffixMatchParallel(b *testing.B) {
 		benchmarkKeyID.Store(lastKeyID)
 	})
 }
+
+func BenchmarkGenerateCandidateKey(b *testing.B) {
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		if _, _, err := generateCandidateKey(); err != nil {
+			b.Fatal(err)
+		}
+	}
+}

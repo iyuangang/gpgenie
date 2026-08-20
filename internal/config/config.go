@@ -16,13 +16,31 @@ type Config struct {
 }
 
 type VanityConfig struct {
-	MinRun         int  `mapstructure:"min_run"`
-	SaveToDatabase bool `mapstructure:"save_to_database"`
+	MinRun         int    `mapstructure:"min_run"`
+	SaveToDatabase bool   `mapstructure:"save_to_database"`
+	Backend        string `mapstructure:"backend"`
+	OpenCLDevices  string `mapstructure:"opencl_devices"`
+	GPUKeyBatch    int    `mapstructure:"gpu_key_batch"`
+	GPUWorkItems   uint64 `mapstructure:"gpu_work_items"`
 }
 
 func (c VanityConfig) Validate() error {
 	if c.MinRun != 0 && (c.MinRun < 1 || c.MinRun > 16) {
 		return fmt.Errorf("vanity.min_run must be between 1 and 16")
+	}
+	switch c.Backend {
+	case "", "cpu", "opencl", "hybrid", "auto":
+	default:
+		return fmt.Errorf("vanity.backend must be cpu, opencl, hybrid, or auto")
+	}
+	if c.GPUKeyBatch < 0 {
+		return fmt.Errorf("vanity.gpu_key_batch must not be negative")
+	}
+	if c.GPUKeyBatch > 65536 {
+		return fmt.Errorf("vanity.gpu_key_batch must not exceed 65536")
+	}
+	if c.GPUWorkItems > (1<<27)-1 {
+		return fmt.Errorf("vanity.gpu_work_items must not exceed 134217727")
 	}
 	return nil
 }
@@ -98,7 +116,8 @@ func Load(configPath string) (*Config, error) {
 		"key_generation.max_letters_count", "key_generation.batch_size",
 		"key_generation.name", "key_generation.comment", "key_generation.email",
 		"key_generation.encryptor_public_key",
-		"vanity.min_run", "vanity.save_to_database",
+		"vanity.min_run", "vanity.save_to_database", "vanity.backend",
+		"vanity.opencl_devices", "vanity.gpu_key_batch", "vanity.gpu_work_items",
 		"logging.log_level", "logging.log_file",
 	} {
 		if err := v.BindEnv(key); err != nil {

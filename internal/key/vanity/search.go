@@ -2,21 +2,32 @@ package vanity
 
 import (
 	"context"
-	"crypto"
 	"fmt"
 	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/ProtonMail/go-crypto/openpgp"
 	"github.com/ProtonMail/go-crypto/openpgp/packet"
 )
 
 const searchBatchSize = uint64(8192)
 
+type Backend string
+
+const (
+	BackendCPU    Backend = "cpu"
+	BackendOpenCL Backend = "opencl"
+	BackendHybrid Backend = "hybrid"
+	BackendAuto   Backend = "auto"
+)
+
 type SearchConfig struct {
+	Backend          Backend
 	Workers          int
+	OpenCLDevices    []int
+	GPUKeyBatch      int
+	GPUWorkItems     uint64
 	MinRun           int
 	Scope            Scope
 	AllowedDigits    DigitSet
@@ -71,8 +82,23 @@ type SearchResult struct {
 type ProgressFunc func(Progress)
 
 func (c SearchConfig) validate() error {
-	if c.Workers <= 0 {
+	if c.Backend == "" {
+		c.Backend = BackendCPU
+	}
+	if err := c.Backend.Validate(); err != nil {
+		return err
+	}
+	if c.Workers < 0 || (c.Workers == 0 && c.Backend != BackendOpenCL) {
 		return fmt.Errorf("workers must be greater than zero")
+	}
+	if c.GPUKeyBatch < 0 {
+		return fmt.Errorf("GPU key batch must not be negative")
+	}
+	if c.GPUKeyBatch > maxGPUKeyBatch {
+		return fmt.Errorf("GPU key batch must not exceed %d", maxGPUKeyBatch)
+	}
+	if c.GPUWorkItems > maxGPUWorkItems {
+		return fmt.Errorf("GPU work items must not exceed %d", maxGPUWorkItems)
 	}
 	if c.MinRun < 1 || c.MinRun > 16 {
 		return fmt.Errorf("min run must be between 1 and 16")
@@ -90,6 +116,9 @@ func (c SearchConfig) validate() error {
 }
 
 func Search(ctx context.Context, cfg SearchConfig, progressFn ProgressFunc) (*SearchResult, error) {
+	if cfg.Backend == "" {
+		cfg.Backend = BackendCPU
+	}
 	if cfg.Workers == 0 {
 		cfg.Workers = runtime.NumCPU()
 	}
@@ -99,6 +128,11 @@ func Search(ctx context.Context, cfg SearchConfig, progressFn ProgressFunc) (*Se
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
+	effectiveBackend, openCLDevices, err := resolveBackendRefs(cfg.Backend, cfg.OpenCLDevices)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Backend = effectiveBackend
 
 	startedAt := time.Now()
 	searchCtx, cancel := context.WithCancel(ctx)
@@ -109,21 +143,44 @@ func Search(ctx context.Context, cfg SearchConfig, progressFn ProgressFunc) (*Se
 	var bestRun atomic.Int32
 	bestRun.Store(int32(cfg.InitialBestRun))
 
-	candidates := make(chan Candidate, cfg.Workers*2)
+	runnerCount := 0
+	if effectiveBackend == BackendCPU || effectiveBackend == BackendHybrid {
+		runnerCount += cfg.Workers
+	}
+	if effectiveBackend == BackendOpenCL || effectiveBackend == BackendHybrid {
+		runnerCount += len(openCLDevices)
+	}
+	candidates := make(chan Candidate, max(2, runnerCount*2))
 	errorsCh := make(chan error, 1)
 	var workers sync.WaitGroup
-	workers.Add(cfg.Workers)
-	for workerID := 0; workerID < cfg.Workers; workerID++ {
-		go func(id int) {
+	startRunner := func(name string, run func() error) {
+		workers.Add(1)
+		go func() {
 			defer workers.Done()
-			if err := searchWorker(searchCtx, cfg, &completed, &reserved, &bestRun, candidates); err != nil {
+			if err := run(); err != nil {
 				select {
-				case errorsCh <- fmt.Errorf("worker %d: %w", id, err):
+				case errorsCh <- fmt.Errorf("%s: %w", name, err):
 				default:
 				}
 				cancel()
 			}
-		}(workerID)
+		}()
+	}
+	if effectiveBackend == BackendCPU || effectiveBackend == BackendHybrid {
+		for workerID := 0; workerID < cfg.Workers; workerID++ {
+			id := workerID
+			startRunner(fmt.Sprintf("CPU worker %d", id), func() error {
+				return searchWorker(searchCtx, cfg, &completed, &reserved, &bestRun, candidates)
+			})
+		}
+	}
+	if effectiveBackend == BackendOpenCL || effectiveBackend == BackendHybrid {
+		for _, device := range openCLDevices {
+			device := device
+			startRunner(fmt.Sprintf("OpenCL device %d (%s)", device.Info.Index, device.Info.Name), func() error {
+				return searchOpenCLWorker(searchCtx, cfg, device, &completed, &reserved, &bestRun, candidates)
+			})
+		}
 	}
 	go func() {
 		workers.Wait()
@@ -284,23 +341,6 @@ func searchWorker(
 			cursor += claimed
 		}
 	}
-}
-
-func generateCandidateKey() (*packet.PrivateKey, []byte, error) {
-	createdAt := time.Now().UTC().Truncate(time.Second)
-	entity, err := openpgp.NewEntity("GPGenie Candidate", "", "candidate@gpgenie.invalid", &packet.Config{
-		DefaultHash: crypto.SHA256,
-		Time:        func() time.Time { return createdAt },
-		Algorithm:   packet.PubKeyAlgoEdDSA,
-	})
-	if err != nil {
-		return nil, nil, fmt.Errorf("generate Ed25519 candidate: %w", err)
-	}
-	template, err := newFingerprintTemplate(entity.PrimaryKey)
-	if err != nil {
-		return nil, nil, err
-	}
-	return entity.PrivateKey, template, nil
 }
 
 func claimAttempts(reserved *atomic.Uint64, maximum, requested uint64) uint64 {

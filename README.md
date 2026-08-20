@@ -123,6 +123,32 @@ gpgenie --config ./config.json vanity \
   --output-dir ./vanity_keys
 ```
 
+On 64-bit Windows, the OpenCL backend dynamically loads the GPU drivers and
+uses all selected GPUs concurrently. No OpenCL SDK or CUDA Toolkit is needed
+on the deployment machine; install the current NVIDIA, AMD, or Intel display
+driver and copy the normal `gpgenie.exe` binary.
+
+```powershell
+# Inspect the stable indices for this run.
+.\gpgenie.exe --config .\config.json vanity --list-opencl-devices
+
+# Use two GPUs. "all" is equivalent when those are the only detected GPUs.
+.\gpgenie.exe --config .\config.json vanity `
+  --backend opencl `
+  --gpu-devices 0,1 `
+  --min-run 15 `
+  --scope suffix `
+  --output-dir .\vanity_keys `
+  --save-db
+```
+
+Each GPU gets an independent OpenCL context, command queue, Ed25519 template
+batch, and bounded dispatch. Rates and attempts shown by the progress line are
+aggregated across devices. A GPU result is never trusted directly: gpgenie
+recomputes the complete OpenPGP fingerprint on the CPU before retaining its
+private key. This also detects driver or kernel faults instead of emitting an
+incorrect signing key.
+
 Useful options:
 
 - `--scope suffix` matches a repeated suffix like `99999999`; `any` accepts a
@@ -136,8 +162,19 @@ Useful options:
   Only the already encrypted private keyring is stored. Set
   `vanity.save_to_database` to enable this by default; an explicit
   `--save-db=false` disables it for one run.
+- Interactive terminals show attempts, session attempts, rate, best run, key
+  ID, elapsed time, and the expected suffix wait on one continuously refreshed
+  line. `--progress-interval 1s` refreshes every second; redirected output uses
+  newline-delimited snapshots instead.
 - `--max-attempts N` applies a bounded search budget. Zero searches until the
   target is found or the process is cancelled.
+- `--backend cpu` preserves the original CPU path. `opencl` uses the selected
+  GPUs, `hybrid` uses those GPUs plus `--workers` CPU workers, and `auto` uses
+  OpenCL when a GPU is available and otherwise falls back to CPU.
+- `--gpu-devices all` uses every detected GPU; a list such as `0,1` selects
+  specific devices. Heterogeneous GPUs are supported. `--gpu-key-batch` and
+  `--gpu-work-items` are advanced tuning controls; their zero defaults are
+  designed to keep Windows dispatches comfortably below watchdog timeouts.
 - `--timestamp-window 720h` scans the preceding 30 days for each candidate and
   therefore records the generated primary key at the beginning of that range.
 - `--checkpoint PATH` persists total attempts, the best run, and latest output
@@ -152,7 +189,11 @@ Equivalent configuration:
 ```json
 "vanity": {
   "min_run": 13,
-  "save_to_database": true
+  "save_to_database": true,
+  "backend": "opencl",
+  "opencl_devices": "all",
+  "gpu_key_batch": 0,
+  "gpu_work_items": 0
 }
 ```
 
@@ -164,6 +205,12 @@ When `m` target digits are allowed, a suffix of length `n` needs an average of
 billion attempts). A 13-digit suffix restricted to three digits averages about
 `1.50e15` attempts, so it can take months even at tens of millions of attempts
 per second.
+
+OpenCL changes throughput, not the probability. A 15-digit suffix with any
+hex digit still averages `2^56` attempts. Measure the actual machine with a
+bounded run such as `--min-run 16 --max-attempts 1000000000 --resume=false`
+before estimating completion time; driver version, power limits, and other GPU
+workloads can materially affect the result.
 
 The output directory contains an ASCII-armored public key, result metadata,
 and a private keyring encrypted to `encryptor_public_key`. Decrypt and import

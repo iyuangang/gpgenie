@@ -24,7 +24,11 @@
   },
   "vanity": {
     "min_run": 13,
-    "save_to_database": false
+    "save_to_database": false,
+    "backend": "auto",
+    "opencl_devices": "all",
+    "gpu_key_batch": 0,
+    "gpu_work_items": 0
   },
   "logging": {
     "log_level": "warn",

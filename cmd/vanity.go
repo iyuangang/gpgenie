@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/iyuangang/gpgenie/internal/app"
@@ -28,6 +30,11 @@ var (
 	vanityResume           bool
 	vanitySaveToDatabase   bool
 	vanityProgressInterval time.Duration
+	vanityBackend          string
+	vanityOpenCLDevices    string
+	vanityGPUKeyBatch      int
+	vanityGPUWorkItems     uint64
+	vanityListOpenCL       bool
 )
 
 var VanityCmd = &cobra.Command{
@@ -36,7 +43,8 @@ var VanityCmd = &cobra.Command{
 	Long: `Mine an Ed25519 OpenPGP signing subkey whose 16-digit long key ID
 contains a repeated hexadecimal run. The normal primary key is generated only
 after a result is found and the private keyring is encrypted to the configured
-encryptor_public_key.`,
+encryptor_public_key. The OpenCL backend uses every selected GPU concurrently
+and verifies every GPU winner again on the CPU.`,
 	RunE: runVanity,
 }
 
@@ -53,6 +61,47 @@ func runVanity(cmd *cobra.Command, _ []string) error {
 	}
 	if workers == 0 {
 		workers = runtime.NumCPU()
+	}
+	backendName := vanityBackend
+	if !cmd.Flags().Changed("backend") && appInstance.Config.Vanity.Backend != "" {
+		backendName = appInstance.Config.Vanity.Backend
+	}
+	backend := vanity.Backend(strings.ToLower(strings.TrimSpace(backendName)))
+	deviceSelection := vanityOpenCLDevices
+	if !cmd.Flags().Changed("gpu-devices") && appInstance.Config.Vanity.OpenCLDevices != "" {
+		deviceSelection = appInstance.Config.Vanity.OpenCLDevices
+	}
+	selectedDevices, err := parseOpenCLDeviceSelection(deviceSelection)
+	if err != nil {
+		return fmt.Errorf("invalid --gpu-devices: %w", err)
+	}
+	gpuKeyBatch := vanityGPUKeyBatch
+	if !cmd.Flags().Changed("gpu-key-batch") && appInstance.Config.Vanity.GPUKeyBatch != 0 {
+		gpuKeyBatch = appInstance.Config.Vanity.GPUKeyBatch
+	}
+	gpuWorkItems := vanityGPUWorkItems
+	if !cmd.Flags().Changed("gpu-work-items") && appInstance.Config.Vanity.GPUWorkItems != 0 {
+		gpuWorkItems = appInstance.Config.Vanity.GPUWorkItems
+	}
+	if vanityListOpenCL {
+		devices, err := vanity.ListOpenCLDevices()
+		if err != nil {
+			return err
+		}
+		if len(devices) == 0 {
+			fmt.Fprintln(cmd.OutOrStdout(), "no OpenCL GPU devices found")
+			return nil
+		}
+		for _, device := range devices {
+			fmt.Fprintf(cmd.OutOrStdout(), "[%d] %s | platform=%s vendor=%s compute_units=%d memory=%.1fGiB driver=%s opencl=%s\n",
+				device.Index, device.Name, device.Platform, device.Vendor, device.ComputeUnits,
+				float64(device.GlobalMemoryBytes)/(1024*1024*1024), device.DriverVersion, device.OpenCLVersion)
+		}
+		return nil
+	}
+	effectiveBackend, openCLDevices, err := vanity.ResolveBackend(backend, selectedDevices)
+	if err != nil {
+		return err
 	}
 	if vanityTimestampWindow < time.Second {
 		return fmt.Errorf("timestamp-window must be at least one second")
@@ -142,11 +191,21 @@ func runVanity(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
+	cpuWorkers := 0
+	if effectiveBackend == vanity.BackendCPU || effectiveBackend == vanity.BackendHybrid {
+		cpuWorkers = workers
+	}
 	fmt.Fprintf(
 		cmd.OutOrStdout(),
-		"vanity search started: workers=%d scope=%s digits=%s target_run=%d save_db=%t timestamp_window=%s previous_attempts=%d\n",
-		workers, scope, targetDigits, minRun, saveToDatabase, vanityTimestampWindow, checkpoint.Attempts,
+		"vanity search started: backend=%s cpu_workers=%d opencl_devices=%d scope=%s digits=%s target_run=%d save_db=%t timestamp_window=%s previous_attempts=%d\n",
+		effectiveBackend, cpuWorkers,
+		len(openCLDevices), scope, targetDigits, minRun, saveToDatabase, vanityTimestampWindow, checkpoint.Attempts,
 	)
+	for _, device := range openCLDevices {
+		fmt.Fprintf(cmd.OutOrStdout(), "OpenCL GPU [%d]: %s (%s), compute_units=%d memory=%.1fGiB driver=%s\n",
+			device.Index, device.Name, device.Platform, device.ComputeUnits,
+			float64(device.GlobalMemoryBytes)/(1024*1024*1024), device.DriverVersion)
+	}
 	fmt.Fprintf(
 		cmd.OutOrStdout(),
 		"key timestamps will span %s through %s; each additional repeated digit costs about 16x more work\n",
@@ -154,7 +213,11 @@ func runVanity(cmd *cobra.Command, _ []string) error {
 	)
 
 	searchConfig := vanity.SearchConfig{
+		Backend:          effectiveBackend,
 		Workers:          workers,
+		OpenCLDevices:    selectedDevices,
+		GPUKeyBatch:      gpuKeyBatch,
+		GPUWorkItems:     gpuWorkItems,
 		MinRun:           minRun,
 		Scope:            scope,
 		AllowedDigits:    allowedDigits,
@@ -165,6 +228,13 @@ func runVanity(cmd *cobra.Command, _ []string) error {
 		InitialBestRun:   checkpoint.BestRun,
 		ProgressInterval: vanityProgressInterval,
 	}
+	progressDisplay := newVanityProgressDisplay(cmd.OutOrStdout())
+	expectedAttempts := expectedVanityAttempts(minRun, scope, allowedDigits)
+	progressDisplay.Update(formatVanityProgress(vanity.Progress{
+		Attempts: checkpoint.Attempts,
+		BestRun:  checkpoint.BestRun,
+	}, minRun, checkpoint.BestKeyID, expectedAttempts), false)
+	defer progressDisplay.Close()
 
 	var checkpointErr error
 	result, searchErr := vanity.Search(cmd.Context(), searchConfig, func(progress vanity.Progress) {
@@ -175,14 +245,14 @@ func runVanity(cmd *cobra.Command, _ []string) error {
 		if err := vanity.SaveCheckpoint(checkpointPath, *checkpoint); err != nil && checkpointErr == nil {
 			checkpointErr = err
 		}
-		if progress.Final || progress.BestKeyID != "" {
-			fmt.Fprintf(
-				cmd.OutOrStdout(),
-				"progress: attempts=%d rate=%.0f/s best_run=%d key_id=%s elapsed=%s\n",
-				progress.Attempts, progress.Rate, progress.BestRun, progress.BestKeyID,
-				progress.Elapsed.Round(time.Second),
-			)
+		bestKeyID := progress.BestKeyID
+		if bestKeyID == "" {
+			bestKeyID = checkpoint.BestKeyID
 		}
+		progressDisplay.Update(
+			formatVanityProgress(progress, minRun, bestKeyID, expectedAttempts),
+			progress.Final,
+		)
 	})
 	if checkpointErr != nil && (result == nil || result.Candidate == nil) {
 		return checkpointErr
@@ -242,7 +312,8 @@ func runVanity(cmd *cobra.Command, _ []string) error {
 	if err := vanity.SaveCheckpoint(checkpointPath, *checkpoint); err != nil {
 		return err
 	}
-	if saveToDatabase {
+	targetReached := artifacts.Metadata.RunLength >= minRun
+	if saveToDatabase && targetReached {
 		if err := saveVanityToDatabase(appInstance.Repository, artifacts); err != nil {
 			return err
 		}
@@ -253,7 +324,17 @@ func runVanity(cmd *cobra.Command, _ []string) error {
 		fmt.Fprintf(cmd.OutOrStdout(), "database: saved encrypted vanity key fingerprint=%s\n", artifacts.Metadata.SigningSubkeyFingerprint)
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "vanity signing subkey ready: key_id=%s run=%d digit=%s\n", artifacts.Metadata.SigningKeyID, artifacts.Metadata.RunLength, artifacts.Metadata.RepeatedDigit)
+	if targetReached {
+		fmt.Fprintf(cmd.OutOrStdout(), "vanity signing subkey ready: key_id=%s run=%d digit=%s\n", artifacts.Metadata.SigningKeyID, artifacts.Metadata.RunLength, artifacts.Metadata.RepeatedDigit)
+	} else {
+		fmt.Fprintf(
+			cmd.OutOrStdout(),
+			"target not reached: preserved best candidate key_id=%s run=%d target=%d; database not updated\n",
+			artifacts.Metadata.SigningKeyID,
+			artifacts.Metadata.RunLength,
+			minRun,
+		)
+	}
 	fmt.Fprintf(cmd.OutOrStdout(), "public key: %s\n", artifacts.PublicKeyPath)
 	fmt.Fprintf(cmd.OutOrStdout(), "encrypted private key: %s\n", artifacts.EncryptedPrivatePath)
 	fmt.Fprintf(cmd.OutOrStdout(), "metadata: %s\n", artifacts.MetadataPath)
@@ -280,6 +361,32 @@ func saveVanityToDatabase(repo repository.KeyRepository, artifacts *vanity.Artif
 	return nil
 }
 
+func parseOpenCLDeviceSelection(value string) ([]int, error) {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.EqualFold(value, "all") {
+		return nil, nil
+	}
+	parts := strings.FieldsFunc(value, func(char rune) bool {
+		return char == ',' || char == ';' || char == ' ' || char == '\t'
+	})
+	result := make([]int, 0, len(parts))
+	seen := make(map[int]bool, len(parts))
+	for _, part := range parts {
+		index, err := strconv.Atoi(part)
+		if err != nil || index < 0 {
+			return nil, fmt.Errorf("device list must be all or non-negative indices such as 0,1; got %q", part)
+		}
+		if !seen[index] {
+			seen[index] = true
+			result = append(result, index)
+		}
+	}
+	if len(result) == 0 {
+		return nil, fmt.Errorf("device list is empty")
+	}
+	return result, nil
+}
+
 func init() {
 	RootCmd.AddCommand(VanityCmd)
 	VanityCmd.Flags().IntVar(&vanityMinRun, "min-run", 8, "stop after finding at least this many repeated hexadecimal digits (1-16)")
@@ -293,4 +400,9 @@ func init() {
 	VanityCmd.Flags().BoolVar(&vanityResume, "resume", true, "resume attempt and best-run counters from the checkpoint")
 	VanityCmd.Flags().BoolVar(&vanitySaveToDatabase, "save-db", false, "save or update the matched key in the configured database (private key remains encrypted)")
 	VanityCmd.Flags().DurationVar(&vanityProgressInterval, "progress-interval", 5*time.Second, "progress and checkpoint interval")
+	VanityCmd.Flags().StringVar(&vanityBackend, "backend", string(vanity.BackendCPU), "search backend: cpu, opencl, hybrid, or auto")
+	VanityCmd.Flags().StringVar(&vanityOpenCLDevices, "gpu-devices", "all", "OpenCL GPU indices to use concurrently (all or for example 0,1)")
+	VanityCmd.Flags().IntVar(&vanityGPUKeyBatch, "gpu-key-batch", 0, "Ed25519 templates prepared per GPU batch (0 uses the tuned default)")
+	VanityCmd.Flags().Uint64Var(&vanityGPUWorkItems, "gpu-work-items", 0, "hashes per OpenCL dispatch (0 uses the tuned default)")
+	VanityCmd.Flags().BoolVar(&vanityListOpenCL, "list-opencl-devices", false, "list detected OpenCL GPUs and exit")
 }
