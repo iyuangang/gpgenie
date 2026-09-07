@@ -36,7 +36,9 @@ type SearchConfig struct {
 	MaxAttempts      uint64
 	InitialAttempts  uint64
 	InitialBestRun   int
+	InitialRetained  uint64
 	ProgressInterval time.Duration
+	OnCandidate      CandidateFunc
 }
 
 type Candidate struct {
@@ -66,6 +68,7 @@ type Progress struct {
 	BestKeyID   string
 	Elapsed     time.Duration
 	Rate        float64
+	Retained    uint64
 	Final       bool
 }
 
@@ -76,10 +79,12 @@ type SearchResult struct {
 	BestRun       int
 	Elapsed       time.Duration
 	Rate          float64
+	Retained      uint64
 	TargetReached bool
 }
 
 type ProgressFunc func(Progress)
+type CandidateFunc func(Candidate, Progress) error
 
 func (c SearchConfig) validate() error {
 	if c.Backend == "" {
@@ -196,10 +201,8 @@ func Search(ctx context.Context, cfg SearchConfig, progressFn ProgressFunc) (*Se
 
 	var best *Candidate
 	var firstErr error
-	emitProgress := func(final bool) {
-		if progressFn == nil {
-			return
-		}
+	retained := cfg.InitialRetained
+	currentProgress := func(final bool) Progress {
 		runAttempts := completed.Load()
 		elapsed := time.Since(startedAt)
 		rate := 0.0
@@ -210,15 +213,21 @@ func Search(ctx context.Context, cfg SearchConfig, progressFn ProgressFunc) (*Se
 		if best != nil {
 			keyID = best.KeyIDHex()
 		}
-		progressFn(Progress{
+		return Progress{
 			Attempts:    cfg.InitialAttempts + runAttempts,
 			RunAttempts: runAttempts,
 			BestRun:     int(bestRun.Load()),
 			BestKeyID:   keyID,
 			Elapsed:     elapsed,
 			Rate:        rate,
+			Retained:    retained,
 			Final:       final,
-		})
+		}
+	}
+	emitProgress := func(final bool) {
+		if progressFn != nil {
+			progressFn(currentProgress(final))
+		}
 	}
 
 	for {
@@ -239,7 +248,8 @@ func Search(ctx context.Context, cfg SearchConfig, progressFn ProgressFunc) (*Se
 					BestRun:       int(bestRun.Load()),
 					Elapsed:       elapsed,
 					Rate:          rate,
-					TargetReached: best != nil && best.Match.RunLength >= cfg.MinRun,
+					Retained:      retained,
+					TargetReached: retained > cfg.InitialRetained || cfg.InitialBestRun >= cfg.MinRun,
 				}
 				if best != nil && best.Match.RunLength != result.BestRun {
 					return result, fmt.Errorf("best candidate run %d does not match promoted run %d", best.Match.RunLength, result.BestRun)
@@ -247,17 +257,32 @@ func Search(ctx context.Context, cfg SearchConfig, progressFn ProgressFunc) (*Se
 				if firstErr != nil {
 					return result, firstErr
 				}
-				if ctx.Err() != nil && !result.TargetReached {
+				if ctx.Err() != nil {
 					return result, ctx.Err()
 				}
 				return result, nil
 			}
-			if best == nil || candidate.Match.RunLength > best.Match.RunLength {
+			if candidate.Match.RunLength == int(bestRun.Load()) &&
+				(best == nil || candidate.Match.RunLength > best.Match.RunLength) {
 				copyCandidate := candidate
 				best = &copyCandidate
 			}
 			if candidate.Match.RunLength >= cfg.MinRun {
-				cancel()
+				if firstErr != nil {
+					continue
+				}
+				eventProgress := currentProgress(false)
+				eventProgress.Retained = retained + 1
+				if cfg.OnCandidate != nil {
+					if err := cfg.OnCandidate(candidate, eventProgress); err != nil {
+						if firstErr == nil {
+							firstErr = fmt.Errorf("retain candidate %s: %w", candidate.KeyIDHex(), err)
+						}
+						cancel()
+						continue
+					}
+				}
+				retained++
 			}
 		case err := <-errorsCh:
 			if err != nil && firstErr == nil {
@@ -318,7 +343,8 @@ func searchWorker(
 					return err
 				}
 				match := EvaluateKeyIDForDigits(keyID, cfg.Scope, cfg.AllowedDigits)
-				if promoteBest(bestRun, match.RunLength) {
+				promoted := promoteBest(bestRun, match.RunLength)
+				if promoted || match.RunLength >= cfg.MinRun {
 					candidate := Candidate{
 						Fingerprint: fingerprint,
 						KeyID:       keyID,
@@ -326,14 +352,10 @@ func searchWorker(
 						Match:       match,
 						privateKey:  privateKey,
 					}
-					// Once promoted, a candidate must reach the coordinator even if a
-					// different worker has already caused search cancellation. This
-					// keeps the reported best run and the retained private key aligned.
+					// Qualified candidates are always delivered, including candidates
+					// equal to or below an earlier best. Promotions below the retention
+					// threshold are delivered so progress can retain the best key ID.
 					output <- candidate
-					if match.RunLength >= cfg.MinRun {
-						completed.Add(processed + 1)
-						return nil
-					}
 				}
 				processed++
 			}

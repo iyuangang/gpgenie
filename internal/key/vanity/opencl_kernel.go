@@ -61,6 +61,7 @@ __kernel void vanity_sha1(
     uint work_count,
     uint allowed,
     uint scope,
+    uint min_run,
     volatile __global uint *result
 ) {
     uint timestamp_index = (uint)get_global_id(0);
@@ -119,6 +120,13 @@ __kernel void vanity_sha1(
     // item index. One atomic maximum therefore publishes a consistent winner
     // without a cross-workgroup spin lock (which can deadlock older GPUs).
     uint score = (run << 27U) | logical_index;
-    atomic_max(result, score);
+    atomic_max(&result[0], score);
+    if (run >= min_run) {
+        uint hit_index = atomic_inc(&result[1]);
+        // Keep this capacity synchronized with openCLHitCapacity in the host.
+        if (hit_index < 4096U) {
+            result[2U + hit_index] = score;
+        }
+    }
 }
 `

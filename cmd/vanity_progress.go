@@ -79,12 +79,13 @@ func formatVanityProgress(
 	}
 
 	line := fmt.Sprintf(
-		"vanity total=%s +%s %s best=%d/%d key=%s time=%s",
+		"vanity total=%s +%s %s best=%d retain>=%d saved=%d key=%s time=%s",
 		formatVanityMetric(progress.Attempts),
 		formatVanityMetric(progress.RunAttempts),
 		formatVanityRate(progress.Rate),
 		progress.BestRun,
 		targetRun,
+		progress.Retained,
 		keyID,
 		progress.Elapsed.Round(time.Second),
 	)

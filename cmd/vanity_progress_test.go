@@ -35,6 +35,7 @@ func TestFormatVanityProgress(t *testing.T) {
 		Attempts:    2_336_633_662_306,
 		RunAttempts: 335_955_000,
 		BestRun:     10,
+		Retained:    3,
 		Elapsed:     5 * time.Second,
 		Rate:        67_191_000,
 	}, 15, "A5E91B8888888888", mathPow16(14))
@@ -42,7 +43,7 @@ func TestFormatVanityProgress(t *testing.T) {
 	assert.True(t, strings.Contains(line, "total=2.337T"))
 	assert.True(t, strings.Contains(line, "+335.955M"))
 	assert.True(t, strings.Contains(line, "67.191M/s"))
-	assert.True(t, strings.Contains(line, "best=10/15"))
+	assert.True(t, strings.Contains(line, "best=10 retain>=15 saved=3"))
 	assert.True(t, strings.Contains(line, "key=A5E91B8888888888"))
 	assert.True(t, strings.Contains(line, "eta~34.0y"))
 }

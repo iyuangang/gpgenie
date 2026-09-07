@@ -23,6 +23,7 @@ type ArtifactMetadata struct {
 	PrimaryCreatedAt         string  `json:"primary_created_at"`
 	Attempts                 uint64  `json:"attempts"`
 	RunAttempts              uint64  `json:"run_attempts"`
+	RetainedCount            uint64  `json:"retained_count"`
 	Elapsed                  string  `json:"elapsed"`
 	Rate                     float64 `json:"candidates_per_second"`
 	CreatedAt                string  `json:"created_at"`
@@ -90,6 +91,7 @@ func FinalizeAndWrite(
 		PrimaryCreatedAt:         primaryCreatedAt.UTC().Format(time.RFC3339),
 		Attempts:                 searchResult.Attempts,
 		RunAttempts:              searchResult.RunAttempts,
+		RetainedCount:            searchResult.Retained,
 		Elapsed:                  searchResult.Elapsed.Round(time.Millisecond).String(),
 		Rate:                     searchResult.Rate,
 		CreatedAt:                time.Now().UTC().Format(time.RFC3339),

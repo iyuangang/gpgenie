@@ -11,6 +11,7 @@ import (
 
 type Checkpoint struct {
 	Attempts                   uint64 `json:"attempts"`
+	RetainedCount              uint64 `json:"retained_count,omitempty"`
 	BestRun                    int    `json:"best_run"`
 	Scope                      Scope  `json:"scope,omitempty"`
 	TargetDigits               string `json:"target_digits,omitempty"`

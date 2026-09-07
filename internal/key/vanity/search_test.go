@@ -2,6 +2,7 @@ package vanity
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -9,8 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSearchStopsWhenTargetReached(t *testing.T) {
+func TestSearchRetainsEveryQualifiedCandidateAndContinues(t *testing.T) {
 	now := uint32(time.Now().Unix())
+	var retained []Candidate
 	result, err := Search(context.Background(), SearchConfig{
 		Workers:        1,
 		MinRun:         1,
@@ -18,14 +20,22 @@ func TestSearchStopsWhenTargetReached(t *testing.T) {
 		TimestampStart: now - 10,
 		TimestampEnd:   now,
 		MaxAttempts:    100,
+		OnCandidate: func(candidate Candidate, _ Progress) error {
+			retained = append(retained, candidate)
+			return nil
+		},
 	}, nil)
 
 	require.NoError(t, err)
 	require.NotNil(t, result.Candidate)
 	assert.True(t, result.TargetReached)
-	assert.GreaterOrEqual(t, result.Candidate.Match.RunLength, 1)
+	assert.Equal(t, uint64(100), result.RunAttempts)
+	assert.Equal(t, uint64(100), result.Retained)
+	assert.Len(t, retained, 100)
+	for _, candidate := range retained {
+		assert.GreaterOrEqual(t, candidate.Match.RunLength, 1)
+	}
 	assert.Equal(t, result.BestRun, result.Candidate.Match.RunLength)
-	assert.GreaterOrEqual(t, result.RunAttempts, uint64(1))
 }
 
 func TestSearchHonorsAttemptBudget(t *testing.T) {
@@ -47,7 +57,7 @@ func TestSearchHonorsAttemptBudget(t *testing.T) {
 	}
 }
 
-func TestSearchRetainsEveryPromotedCandidateDuringConcurrentCancellation(t *testing.T) {
+func TestSearchRetainsBestCandidateDuringConcurrentSearch(t *testing.T) {
 	now := uint32(time.Now().Unix())
 	for i := 0; i < 10; i++ {
 		result, err := Search(context.Background(), SearchConfig{
@@ -62,6 +72,53 @@ func TestSearchRetainsEveryPromotedCandidateDuringConcurrentCancellation(t *test
 		require.NotNil(t, result.Candidate)
 		assert.Equal(t, result.BestRun, result.Candidate.Match.RunLength)
 	}
+}
+
+func TestSearchRetainsQualifiedCandidateBelowCheckpointBest(t *testing.T) {
+	now := uint32(time.Now().Unix())
+	retained := 0
+	result, err := Search(context.Background(), SearchConfig{
+		Workers:         1,
+		MinRun:          1,
+		Scope:           ScopeSuffix,
+		TimestampStart:  now - 20,
+		TimestampEnd:    now,
+		MaxAttempts:     20,
+		InitialBestRun:  16,
+		InitialRetained: 4,
+		OnCandidate: func(candidate Candidate, progress Progress) error {
+			assert.GreaterOrEqual(t, candidate.Match.RunLength, 1)
+			assert.Greater(t, progress.Retained, uint64(4))
+			retained++
+			return nil
+		},
+	}, nil)
+
+	require.NoError(t, err)
+	assert.Equal(t, 20, retained)
+	assert.Equal(t, uint64(24), result.Retained)
+	assert.Equal(t, 16, result.BestRun)
+	assert.Nil(t, result.Candidate)
+}
+
+func TestSearchStopsOnRetentionError(t *testing.T) {
+	now := uint32(time.Now().Unix())
+	wantErr := errors.New("disk full")
+	result, err := Search(context.Background(), SearchConfig{
+		Workers:        2,
+		MinRun:         1,
+		Scope:          ScopeSuffix,
+		TimestampStart: now - 100,
+		TimestampEnd:   now,
+		MaxAttempts:    1000,
+		OnCandidate: func(Candidate, Progress) error {
+			return wantErr
+		},
+	}, nil)
+
+	require.ErrorIs(t, err, wantErr)
+	require.NotNil(t, result)
+	assert.Zero(t, result.Retained)
 }
 
 func TestOpenCLSearchMatchesCPUVerification(t *testing.T) {
@@ -91,6 +148,27 @@ func TestOpenCLSearchMatchesCPUVerification(t *testing.T) {
 			require.NotNil(t, result.Candidate)
 			assert.Equal(t, result.BestRun, result.Candidate.Match.RunLength)
 			assert.False(t, result.TargetReached)
+
+			retained := 0
+			continuous, err := Search(context.Background(), SearchConfig{
+				Backend:        BackendOpenCL,
+				OpenCLDevices:  []int{device.Index},
+				GPUKeyBatch:    2,
+				GPUWorkItems:   256,
+				MinRun:         1,
+				Scope:          ScopeSuffix,
+				TimestampStart: now - 127,
+				TimestampEnd:   now,
+				MaxAttempts:    256,
+				OnCandidate: func(candidate Candidate, _ Progress) error {
+					assert.GreaterOrEqual(t, candidate.Match.RunLength, 1)
+					retained++
+					return nil
+				},
+			}, nil)
+			require.NoError(t, err)
+			assert.Equal(t, 256, retained)
+			assert.Equal(t, uint64(256), continuous.Retained)
 		})
 	}
 }

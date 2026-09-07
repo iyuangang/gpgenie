@@ -34,7 +34,8 @@ const (
 	clMemReadOnly          = uintptr(1 << 2)
 	clProgramBuildLog      = uint32(0x1183)
 	clTrue                 = uintptr(1)
-	openCLResultWords      = 1
+	openCLHitCapacity      = 4096
+	openCLResultWords      = 2 + openCLHitCapacity
 	openCLResultIndexBits  = 27
 )
 
@@ -306,7 +307,7 @@ func newOpenCLExecutor(device openCLDeviceRef, keyBatch int) (*openCLExecutor, e
 	if err := executor.setMemoryArg(0, executor.blocks); err != nil {
 		return cleanupOnError(err)
 	}
-	if err := executor.setMemoryArg(7, executor.result); err != nil {
+	if err := executor.setMemoryArg(8, executor.result); err != nil {
 		return cleanupOnError(err)
 	}
 	return executor, nil
@@ -374,7 +375,7 @@ func (e *openCLExecutor) writeBlocks(words []uint32) error {
 	return clCheck("clEnqueueWriteBuffer(input)", code)
 }
 
-func (e *openCLExecutor) run(templateCount, timestampStart, timestampCount, workCount uint32, allowed DigitSet, scope Scope, initialBest int) ([openCLResultWords]uint32, error) {
+func (e *openCLExecutor) run(templateCount, timestampStart, timestampCount, workCount uint32, allowed DigitSet, scope Scope, minRun, initialBest int) ([openCLResultWords]uint32, error) {
 	if workCount == 0 || uint64(workCount) > maxGPUWorkItems {
 		return [openCLResultWords]uint32{}, fmt.Errorf("OpenCL work count must be between 1 and %d", maxGPUWorkItems)
 	}
@@ -394,6 +395,7 @@ func (e *openCLExecutor) run(templateCount, timestampStart, timestampCount, work
 		e.setUint32Arg(4, workCount),
 		e.setUint32Arg(5, uint32(allowed)),
 		e.setUint32Arg(6, scopeValue),
+		e.setUint32Arg(7, uint32(minRun)),
 	}
 	if err := errors.Join(args...); err != nil {
 		return result, err
@@ -420,6 +422,7 @@ func searchOpenCLWorker(ctx context.Context, cfg SearchConfig, device openCLDevi
 	if workItems == 0 {
 		workItems = defaultGPUWorkItems
 	}
+	workItems = retentionSafeGPUWorkItems(workItems, cfg.MinRun, cfg.Scope)
 	executor, err := newOpenCLExecutor(device, keyBatch)
 	if err != nil {
 		return err
@@ -465,36 +468,56 @@ func searchOpenCLWorker(ctx context.Context, cfg SearchConfig, device openCLDevi
 			}
 			baseline := int(bestRun.Load())
 			dispatchStart := cfg.TimestampStart + uint32(cursor)
-			gpuResult, err := executor.run(uint32(len(keys)), dispatchStart, uint32(timestampCount), uint32(claimed), cfg.AllowedDigits, cfg.Scope, baseline)
+			gpuResult, err := executor.run(uint32(len(keys)), dispatchStart, uint32(timestampCount), uint32(claimed), cfg.AllowedDigits, cfg.Scope, cfg.MinRun, baseline)
 			if err != nil {
 				return err
 			}
 			completed.Add(claimed)
 			cursor += timestampCount
 
-			score := gpuResult[0]
-			resultRun := int(score >> openCLResultIndexBits)
-			if resultRun <= baseline {
-				continue
+			candidateFromScore := func(score uint32) (Candidate, error) {
+				resultRun := int(score >> openCLResultIndexBits)
+				resultIndex := uint64(score & uint32(maxGPUWorkItems))
+				templateIndex := int(resultIndex / timestampCount)
+				if templateIndex < 0 || templateIndex >= len(keys) {
+					return Candidate{}, fmt.Errorf("OpenCL returned invalid template index %d", templateIndex)
+				}
+				timestamp := dispatchStart + uint32(resultIndex%timestampCount)
+				fingerprint, keyID, err := fingerprintAt(keys[templateIndex].template, timestamp)
+				if err != nil {
+					return Candidate{}, err
+				}
+				match := EvaluateKeyIDForDigits(keyID, cfg.Scope, cfg.AllowedDigits)
+				if match.RunLength != resultRun {
+					return Candidate{}, fmt.Errorf("OpenCL verification mismatch: GPU run=%d, CPU key=%016X run=%d", resultRun, keyID, match.RunLength)
+				}
+				return Candidate{Fingerprint: fingerprint, KeyID: keyID, Timestamp: timestamp, Match: match, privateKey: keys[templateIndex].privateKey}, nil
 			}
-			resultIndex := uint64(score & uint32(maxGPUWorkItems))
-			templateIndex := int(resultIndex / timestampCount)
-			if templateIndex < 0 || templateIndex >= len(keys) {
-				return fmt.Errorf("OpenCL returned invalid template index %d", templateIndex)
+
+			hitCount := int(gpuResult[1])
+			if hitCount > openCLHitCapacity {
+				return fmt.Errorf("OpenCL qualified-hit buffer overflowed: %d hits in one dispatch (capacity %d); lower --gpu-work-items", hitCount, openCLHitCapacity)
 			}
-			timestamp := dispatchStart + uint32(resultIndex%timestampCount)
-			fingerprint, keyID, err := fingerprintAt(keys[templateIndex].template, timestamp)
-			if err != nil {
-				return err
+			bestScore := gpuResult[0]
+			bestDelivered := false
+			for hitIndex := 0; hitIndex < hitCount; hitIndex++ {
+				score := gpuResult[2+hitIndex]
+				candidate, err := candidateFromScore(score)
+				if err != nil {
+					return err
+				}
+				promoteBest(bestRun, candidate.Match.RunLength)
+				output <- candidate
+				bestDelivered = bestDelivered || score == bestScore
 			}
-			match := EvaluateKeyIDForDigits(keyID, cfg.Scope, cfg.AllowedDigits)
-			if match.RunLength != resultRun {
-				return fmt.Errorf("OpenCL verification mismatch: GPU run=%d, CPU key=%016X run=%d", resultRun, keyID, match.RunLength)
-			}
-			if promoteBest(bestRun, match.RunLength) {
-				output <- Candidate{Fingerprint: fingerprint, KeyID: keyID, Timestamp: timestamp, Match: match, privateKey: keys[templateIndex].privateKey}
-				if match.RunLength >= cfg.MinRun {
-					return nil
+			bestResultRun := int(bestScore >> openCLResultIndexBits)
+			if !bestDelivered && bestResultRun > baseline {
+				candidate, err := candidateFromScore(bestScore)
+				if err != nil {
+					return err
+				}
+				if promoteBest(bestRun, candidate.Match.RunLength) {
+					output <- candidate
 				}
 			}
 			if claimed < requested {
@@ -536,4 +559,26 @@ func roundUpUintptr(value, multiple uintptr) uintptr {
 		return value
 	}
 	return (value + multiple - 1) / multiple * multiple
+}
+
+// Keep the expected number of qualifying results well below the fixed hit
+// buffer for low thresholds. Run 12 is unaffected; this mainly makes small
+// thresholds useful for tests and diagnostics without silently dropping hits.
+func retentionSafeGPUWorkItems(configured uint64, minRun int, scope Scope) uint64 {
+	safe := uint64(openCLHitCapacity / 4)
+	exponent := minRun - 1
+	if scope == ScopeAny {
+		exponent--
+	}
+	for range max(0, exponent) {
+		if safe > maxGPUWorkItems/16 {
+			safe = maxGPUWorkItems
+			break
+		}
+		safe *= 16
+	}
+	if safe == 0 {
+		safe = 1
+	}
+	return minUint64(configured, safe)
 }

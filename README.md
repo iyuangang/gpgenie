@@ -109,9 +109,9 @@ gpgenie generate -t 1000 -b 50
 
 `vanity` searches the real 16-hex-digit OpenPGP v4 long key ID and builds a
 normal Ed25519 primary key with a cross-certified Ed25519 signing subkey. The
-search hot path reuses each public key across a timestamp window, hashes raw
-OpenPGP fingerprint material, and creates the complete keyring only after a
-match is found.
+search hot path reuses each public key across a timestamp window and hashes raw
+OpenPGP fingerprint material. Every match at or above `--min-run` is converted
+to a complete keyring and retained while the search continues.
 
 ```bash
 gpgenie --config ./config.json vanity \
@@ -136,7 +136,7 @@ driver and copy the normal `gpgenie.exe` binary.
 .\gpgenie.exe --config .\config.json vanity `
   --backend opencl `
   --gpu-devices 0,1 `
-  --min-run 15 `
+  --min-run 12 `
   --scope suffix `
   --output-dir .\vanity_keys `
   --save-db
@@ -156,18 +156,20 @@ Useful options:
 - `--digits 180` only accepts repeated runs made from `0`, `1`, or `8`.
   Compact (`180`) and separated (`1,8,0`) forms are equivalent; the default
   accepts all hexadecimal digits.
-- `--min-run 13` accepts a run of 13 or more repeated digits. The command-line
-  value overrides `vanity.min_run` in the configuration file.
-- `--save-db` upserts the matched signing subkey into the configured database.
-  Only the already encrypted private keyring is stored. Set
+- `--min-run 12` retains every run of 12, 13, 14, 15, or 16 digits. It is a
+  retention threshold, not a stopping condition; the search continues until
+  cancellation or `--max-attempts`. The command-line value overrides
+  `vanity.min_run` in the configuration file.
+- `--save-db` upserts every retained signing subkey into the configured
+  database. Only the already encrypted private keyring is stored. Set
   `vanity.save_to_database` to enable this by default; an explicit
   `--save-db=false` disables it for one run.
-- Interactive terminals show attempts, session attempts, rate, best run, key
-  ID, elapsed time, and the expected suffix wait on one continuously refreshed
-  line. `--progress-interval 1s` refreshes every second; redirected output uses
-  newline-delimited snapshots instead.
-- `--max-attempts N` applies a bounded search budget. Zero searches until the
-  target is found or the process is cancelled.
+- Interactive terminals show attempts, session attempts, rate, best run,
+  retention threshold, retained count, key ID, elapsed time, and the expected
+  suffix wait on one continuously refreshed line. `--progress-interval 1s`
+  refreshes every second; redirected output uses newline-delimited snapshots.
+- `--max-attempts N` applies a bounded search budget. Zero means search until
+  the process is cancelled.
 - `--backend cpu` preserves the original CPU path. `opencl` uses the selected
   GPUs, `hybrid` uses those GPUs plus `--workers` CPU workers, and `auto` uses
   OpenCL when a GPU is available and otherwise falls back to CPU.
@@ -177,9 +179,10 @@ Useful options:
   designed to keep Windows dispatches comfortably below watchdog timeouts.
 - `--timestamp-window 720h` scans the preceding 30 days for each candidate and
   therefore records the generated primary key at the beginning of that range.
-- `--checkpoint PATH` persists total attempts, the best run, and latest output
-  paths. Resuming starts with fresh random key material and preserves the
-  previously encrypted best artifact. Changing `--scope` or `--digits`
+- `--checkpoint PATH` persists total attempts, retained count, the best run,
+  and latest output paths. Resuming starts with fresh random key material and
+  continues retaining new matches even when the checkpoint already contains a
+  qualifying key. Changing `--scope` or `--digits`
   automatically resets incompatible counters while leaving artifacts on disk.
   If artifact creation succeeded but the database write failed, rerunning with
   `--save-db` loads those artifacts and retries the write without mining again.
@@ -212,9 +215,9 @@ bounded run such as `--min-run 16 --max-attempts 1000000000 --resume=false`
 before estimating completion time; driver version, power limits, and other GPU
 workloads can materially affect the result.
 
-The output directory contains an ASCII-armored public key, result metadata,
-and a private keyring encrypted to `encryptor_public_key`. Decrypt and import
-the private artifact locally:
+For every retained key, the output directory contains an ASCII-armored public
+key, result metadata, and a private keyring encrypted to
+`encryptor_public_key`. Decrypt and import a private artifact locally:
 
 ```bash
 gpg --output vanity-private.asc --decrypt gpgenie-KEYID-private.asc.pgp

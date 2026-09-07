@@ -24,6 +24,7 @@ func TestFinalizeAndWriteProducesEncryptedArtifacts(t *testing.T) {
 		Attempts:    1234,
 		RunAttempts: 1234,
 		BestRun:     candidate.Match.RunLength,
+		Retained:    7,
 		Elapsed:     time.Second,
 		Rate:        1234,
 	}
@@ -49,6 +50,7 @@ func TestFinalizeAndWriteProducesEncryptedArtifacts(t *testing.T) {
 	assert.FileExists(t, artifacts.MetadataPath)
 	assert.Equal(t, candidate.KeyIDHex(), artifacts.Metadata.SigningKeyID)
 	assert.Equal(t, "018", artifacts.Metadata.TargetDigits)
+	assert.Equal(t, uint64(7), artifacts.Metadata.RetainedCount)
 	assert.Equal(t, string(publicData), artifacts.PublicKey)
 	assert.Equal(t, string(privateData), artifacts.EncryptedPrivateKey)
 
@@ -77,6 +79,7 @@ func TestCheckpointRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state", "checkpoint.json")
 	want := Checkpoint{
 		Attempts:               987654,
+		RetainedCount:          7,
 		BestRun:                9,
 		Scope:                  ScopeSuffix,
 		TargetDigits:           "018",
@@ -91,6 +94,7 @@ func TestCheckpointRoundTrip(t *testing.T) {
 	got, err := LoadCheckpoint(path)
 	require.NoError(t, err)
 	assert.Equal(t, want.Attempts, got.Attempts)
+	assert.Equal(t, want.RetainedCount, got.RetainedCount)
 	assert.Equal(t, want.BestRun, got.BestRun)
 	assert.Equal(t, want.BestKeyID, got.BestKeyID)
 	assert.Equal(t, want.Scope, got.Scope)
