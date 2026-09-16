@@ -405,6 +405,6 @@ func init() {
 	VanityCmd.Flags().StringVar(&vanityBackend, "backend", string(vanity.BackendCPU), "search backend: cpu, opencl, hybrid, or auto")
 	VanityCmd.Flags().StringVar(&vanityOpenCLDevices, "gpu-devices", "all", "OpenCL GPU indices to use concurrently (all or for example 0,1)")
 	VanityCmd.Flags().IntVar(&vanityGPUKeyBatch, "gpu-key-batch", 0, "Ed25519 templates prepared per GPU batch (0 uses the tuned default)")
-	VanityCmd.Flags().Uint64Var(&vanityGPUWorkItems, "gpu-work-items", 0, "hashes per OpenCL dispatch (0 uses the tuned default)")
+	VanityCmd.Flags().Uint64Var(&vanityGPUWorkItems, "gpu-work-items", 0, "hashes per OpenCL dispatch (0 adapts each GPU toward 100ms)")
 	VanityCmd.Flags().BoolVar(&vanityListOpenCL, "list-opencl-devices", false, "list detected OpenCL GPUs and exit")
 }

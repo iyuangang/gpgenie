@@ -121,6 +121,25 @@ func TestSearchStopsOnRetentionError(t *testing.T) {
 	assert.Zero(t, result.Retained)
 }
 
+func TestSearchCancellationDrainsComputedCandidates(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var retained uint64
+	result, err := Search(ctx, SearchConfig{
+		Workers: 8, MinRun: 1, Scope: ScopeAny,
+		TimestampStart: 0xffffff00, TimestampEnd: 0xffffffff,
+		OnCandidate: func(_ Candidate, _ Progress) error {
+			retained++
+			cancel()
+			return nil
+		},
+	}, nil)
+	require.ErrorIs(t, err, context.Canceled)
+	require.Equal(t, retained, result.Retained)
+	require.Equal(t, retained, result.RunAttempts)
+	require.Positive(t, retained)
+}
+
 func TestOpenCLSearchMatchesCPUVerification(t *testing.T) {
 	devices, err := ListOpenCLDevices()
 	if err != nil || len(devices) == 0 {

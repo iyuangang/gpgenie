@@ -170,13 +170,17 @@ Useful options:
   refreshes every second; redirected output uses newline-delimited snapshots.
 - `--max-attempts N` applies a bounded search budget. Zero means search until
   the process is cancelled.
-- `--backend cpu` preserves the original CPU path. `opencl` uses the selected
+- `--backend cpu` uses batched SHA-NI hashing when the CPU supports it, with
+  a standard-library fallback on other CPUs. `opencl` uses the selected
   GPUs, `hybrid` uses those GPUs plus `--workers` CPU workers, and `auto` uses
   OpenCL when a GPU is available and otherwise falls back to CPU.
 - `--gpu-devices all` uses every detected GPU; a list such as `0,1` selects
   specific devices. Heterogeneous GPUs are supported. `--gpu-key-batch` and
-  `--gpu-work-items` are advanced tuning controls; their zero defaults are
-  designed to keep Windows dispatches comfortably below watchdog timeouts.
+  `--gpu-work-items` are advanced tuning controls. With `--gpu-work-items 0`,
+  each GPU starts at up to 1,048,576 hashes and adjusts toward 100 ms per
+  dispatch, capped at 67,108,864 hashes. An explicit nonzero value disables
+  timing adaptation; low retention thresholds still reduce batch sizes to
+  protect the hit buffer. `--gpu-key-batch 0` prepares up to 256 keys.
 - `--timestamp-window 720h` scans the preceding 30 days for each candidate and
   therefore records the generated primary key at the beginning of that range.
 - `--checkpoint PATH` persists total attempts, retained count, the best run,
@@ -214,6 +218,12 @@ hex digit still averages `2^56` attempts. Measure the actual machine with a
 bounded run such as `--min-run 16 --max-attempts 1000000000 --resume=false`
 before estimating completion time; driver version, power limits, and other GPU
 workloads can materially affect the result.
+
+See [vanity performance notes](docs/vanity-performance.md) for implementation
+details, reproducible benchmarks and measured CPU/GPU combinations. On the
+tested i7-11700 + GT 730 + UHD 750, `--backend hybrid --workers 12` reached
+about 677 million candidates per second in bounded searches; more CPU workers
+were slower on this machine.
 
 For every retained key, the output directory contains an ASCII-armored public
 key, result metadata, and a private keyring encrypted to

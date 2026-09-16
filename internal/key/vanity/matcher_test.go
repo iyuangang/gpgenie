@@ -1,11 +1,68 @@
 package vanity
 
 import (
+	"math/rand/v2"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestMatcherAndFilterAgainstHexReference(t *testing.T) {
+	rng := rand.New(rand.NewPCG(4, 5))
+	for sample := 0; sample < 10000; sample++ {
+		keyID := rng.Uint64()
+		// Force long runs at every possible position as well as random IDs.
+		if sample%2 == 0 {
+			run := 1 + rng.IntN(16)
+			shift := uint(rng.IntN(17-run) * 4)
+			mask := ^uint64(0) >> uint((16-run)*4)
+			keyID = keyID & ^(mask<<shift) | (rng.Uint64()&15)*0x1111111111111111&mask<<shift
+		}
+		for _, scope := range []Scope{ScopeSuffix, ScopeAny} {
+			for _, digits := range []DigitSet{AllDigits, 0, 0x103, 0x8000, 0x1} {
+				want := referenceMatch(keyID, scope, digits)
+				require.Equal(t, want, EvaluateKeyIDForDigits(keyID, scope, digits))
+			}
+			want := referenceMatch(keyID, scope, AllDigits)
+			for minRun := 1; minRun <= 16; minRun++ {
+				require.Equal(t, want.RunLength >= minRun, newKeyIDFilter(scope, minRun).allows(keyID), "key=%016x scope=%s minRun=%d", keyID, scope, minRun)
+			}
+		}
+	}
+}
+
+func referenceMatch(keyID uint64, scope Scope, digits DigitSet) Match {
+	if digits == 0 {
+		digits = AllDigits
+	}
+	hex := Candidate{KeyID: keyID}.KeyIDHex()
+	if scope == ScopeSuffix {
+		digit := byte(strings.IndexByte("0123456789ABCDEF", hex[15]))
+		start := 15
+		if !digits.Allows(digit) {
+			return Match{Start: start, Digit: digit}
+		}
+		for start > 0 && hex[start-1] == hex[15] {
+			start--
+		}
+		return Match{Start: start, RunLength: 16 - start, Digit: digit}
+	}
+	best := Match{Digit: byte(strings.IndexByte("0123456789ABCDEF", hex[0]))}
+	for start := 0; start < 16; {
+		end := start + 1
+		for end < 16 && hex[end] == hex[start] {
+			end++
+		}
+		digit := byte(strings.IndexByte("0123456789ABCDEF", hex[start]))
+		if digits.Allows(digit) && end-start >= best.RunLength {
+			best = Match{Start: start, RunLength: end - start, Digit: digit}
+		}
+		start = end
+	}
+	return best
+}
 
 func TestEvaluateKeyIDSuffix(t *testing.T) {
 	tests := []struct {

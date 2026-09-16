@@ -41,6 +41,28 @@ func TestBuildSigningKeyringRoundTrips(t *testing.T) {
 	require.NoError(t, ValidateSigningKeyring(parsed[0], candidate.KeyID))
 }
 
+func TestSigningKeyringsDoNotMutateSharedCandidate(t *testing.T) {
+	first := testCandidate(t)
+	originalTime := first.privateKey.CreationTime
+	originalKeyID := first.privateKey.KeyId
+	second := first
+	second.Timestamp++
+	template, err := newFingerprintTemplate(&first.privateKey.PublicKey)
+	require.NoError(t, err)
+	second.Fingerprint, second.KeyID, err = fingerprintAt(template, second.Timestamp)
+	require.NoError(t, err)
+	identity := Identity{Name: "Shared Candidate", Email: "shared@example.com"}
+	created := time.Unix(int64(first.Timestamp)-3600, 0)
+	one, err := BuildSigningKeyring(identity, first, created)
+	require.NoError(t, err)
+	two, err := BuildSigningKeyring(identity, second, created)
+	require.NoError(t, err)
+	require.NoError(t, ValidateSigningKeyring(one, first.KeyID))
+	require.NoError(t, ValidateSigningKeyring(two, second.KeyID))
+	require.Equal(t, originalTime, first.privateKey.CreationTime)
+	require.Equal(t, originalKeyID, first.privateKey.KeyId)
+}
+
 func TestGnuPGImportsAndSignsWithGeneratedKeyring(t *testing.T) {
 	gpgPath := findGPG()
 	if gpgPath == "" {

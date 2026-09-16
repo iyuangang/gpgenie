@@ -62,7 +62,11 @@ func BuildSigningKeyring(identity Identity, candidate Candidate, primaryCreatedA
 		}
 	}
 
-	subPrivate := candidate.privateKey
+	// Several retained timestamps can share the same Ed25519 material. Give
+	// each keyring its own packet header so later results cannot change the
+	// fingerprint/timestamp of an already constructed signing keyring.
+	subPrivateCopy := *candidate.privateKey
+	subPrivate := &subPrivateCopy
 	subPrivate.Version = 4
 	subPrivate.CreationTime = subkeyCreatedAt
 	subPrivate.IsSubkey = true

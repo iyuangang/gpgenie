@@ -108,6 +108,9 @@ func (c SearchConfig) validate() error {
 	if c.MinRun < 1 || c.MinRun > 16 {
 		return fmt.Errorf("min run must be between 1 and 16")
 	}
+	if c.InitialBestRun < 0 || c.InitialBestRun > 16 {
+		return fmt.Errorf("initial best run must be between 0 and 16")
+	}
 	if err := c.Scope.Validate(); err != nil {
 		return err
 	}
@@ -234,6 +237,15 @@ func Search(ctx context.Context, cfg SearchConfig, progressFn ProgressFunc) (*Se
 		select {
 		case candidate, ok := <-candidates:
 			if !ok {
+				// The last worker may have queued an error just before closing
+				// candidates. select can choose the closed channel first.
+				select {
+				case err := <-errorsCh:
+					if firstErr == nil {
+						firstErr = err
+					}
+				default:
+				}
 				emitProgress(true)
 				runAttempts := completed.Load()
 				elapsed := time.Since(startedAt)
@@ -251,11 +263,11 @@ func Search(ctx context.Context, cfg SearchConfig, progressFn ProgressFunc) (*Se
 					Retained:      retained,
 					TargetReached: retained > cfg.InitialRetained || cfg.InitialBestRun >= cfg.MinRun,
 				}
-				if best != nil && best.Match.RunLength != result.BestRun {
-					return result, fmt.Errorf("best candidate run %d does not match promoted run %d", best.Match.RunLength, result.BestRun)
-				}
 				if firstErr != nil {
 					return result, firstErr
+				}
+				if best != nil && best.Match.RunLength != result.BestRun {
+					return result, fmt.Errorf("best candidate run %d does not match promoted run %d", best.Match.RunLength, result.BestRun)
 				}
 				if ctx.Err() != nil {
 					return result, ctx.Err()
@@ -302,12 +314,20 @@ func searchWorker(
 	bestRun *atomic.Int32,
 	output chan<- Candidate,
 ) error {
+	var keyIDs [1024]uint64
 	for {
 		if err := ctx.Err(); err != nil {
 			return nil
 		}
+		if cfg.MaxAttempts > 0 && reserved.Load() >= cfg.MaxAttempts {
+			return nil
+		}
 
 		privateKey, template, err := generateCandidateKey()
+		if err != nil {
+			return err
+		}
+		block, err := sha1PaddedBlock(template)
 		if err != nil {
 			return err
 		}
@@ -326,38 +346,47 @@ func searchWorker(
 			}
 
 			processed := uint64(0)
+			localBest := int(bestRun.Load())
+			filter := newKeyIDFilter(cfg.Scope, min(cfg.MinRun, localBest+1))
 			for processed < claimed {
-				if processed&1023 == 0 {
-					select {
-					case <-ctx.Done():
-						completed.Add(processed)
-						return nil
-					default:
-					}
-				}
-
-				timestamp := uint32(cursor + processed)
-				fingerprint, keyID, err := fingerprintAt(template, timestamp)
-				if err != nil {
+				if ctx.Err() != nil {
 					completed.Add(processed)
-					return err
+					return nil
 				}
-				match := EvaluateKeyIDForDigits(keyID, cfg.Scope, cfg.AllowedDigits)
-				promoted := promoteBest(bestRun, match.RunLength)
-				if promoted || match.RunLength >= cfg.MinRun {
-					candidate := Candidate{
-						Fingerprint: fingerprint,
-						KeyID:       keyID,
-						Timestamp:   timestamp,
-						Match:       match,
-						privateKey:  privateKey,
+				count := min(uint64(len(keyIDs)), claimed-processed)
+				keyIDsBatch(&block, template, uint32(cursor+processed), keyIDs[:count])
+				for _, keyID := range keyIDs[:count] {
+					timestamp := uint32(cursor + processed)
+					processed++
+					if !filter.allows(keyID) {
+						continue
 					}
-					// Qualified candidates are always delivered, including candidates
-					// equal to or below an earlier best. Promotions below the retention
-					// threshold are delivered so progress can retain the best key ID.
-					output <- candidate
+					match := EvaluateKeyIDForDigits(keyID, cfg.Scope, cfg.AllowedDigits)
+					promoted := false
+					if match.RunLength > localBest {
+						promoted = promoteBest(bestRun, match.RunLength)
+						localBest = int(bestRun.Load())
+						filter = newKeyIDFilter(cfg.Scope, min(cfg.MinRun, localBest+1))
+					}
+					if promoted || match.RunLength >= cfg.MinRun {
+						fingerprint, verifiedKeyID, err := fingerprintAt(template, timestamp)
+						if err != nil || keyID != verifiedKeyID {
+							completed.Add(processed)
+							return fmt.Errorf("CPU batch verification failed at timestamp %d: batch=%016X reference=%016X error=%v", timestamp, keyID, verifiedKeyID, err)
+						}
+						candidate := Candidate{
+							Fingerprint: fingerprint,
+							KeyID:       keyID,
+							Timestamp:   timestamp,
+							Match:       match,
+							privateKey:  privateKey,
+						}
+						// Qualified candidates are always delivered, including candidates
+						// equal to or below an earlier best. Promotions below the retention
+						// threshold are delivered so progress can retain the best key ID.
+						output <- candidate
+					}
 				}
-				processed++
 			}
 			completed.Add(processed)
 			cursor += claimed

@@ -2,6 +2,7 @@ package vanity
 
 import (
 	"fmt"
+	"math/bits"
 	"strings"
 	"unicode"
 )
@@ -99,13 +100,9 @@ func EvaluateKeyIDForDigits(keyID uint64, scope Scope, allowed DigitSet) Match {
 		if !allowed.Allows(digit) {
 			return Match{Start: 15, Digit: digit}
 		}
-		run := 1
-		for i := 1; i < 16; i++ {
-			if byte((keyID>>uint(i*4))&0x0f) != digit {
-				break
-			}
-			run++
-		}
+		// XOR with sixteen copies of the last digit. Every complete zero
+		// nibble at the low end is part of the suffix, including all 16.
+		run := bits.TrailingZeros64(keyID^(uint64(digit)*0x1111111111111111)) / 4
 		return Match{RunLength: run, Start: 16 - run, Digit: digit}
 	}
 
@@ -139,4 +136,42 @@ func formatHexDigit(digit byte) string {
 		return "?"
 	}
 	return string(digits[digit])
+}
+
+// keyIDFilter rejects hashes that cannot qualify or improve the current best.
+// It never rejects a possible match. Exact digit/run metadata is calculated
+// only after this cheap test, particularly useful for ScopeAny's 16 digits.
+type keyIDFilter struct {
+	suffix bool
+	mask   uint64
+	edges  bool
+	shifts [4]uint
+}
+
+func newKeyIDFilter(scope Scope, minRun int) keyIDFilter {
+	f := keyIDFilter{suffix: scope == ScopeSuffix, mask: ^uint64(0) >> uint((16-minRun)*4), edges: minRun > 1}
+	for covered, i := 1, 0; covered < minRun-1; i++ {
+		step := min(covered, minRun-1-covered)
+		f.shifts[i] = uint(step * 4)
+		covered += step
+	}
+	return f
+}
+
+func (f keyIDFilter) allows(keyID uint64) bool {
+	if f.suffix {
+		return (keyID^((keyID&15)*0x1111111111111111))&f.mask == 0
+	}
+	if !f.edges {
+		return true
+	}
+	x := keyID ^ (keyID >> 4)
+	// Each set bit represents equal adjacent nibbles. Intersections detect
+	// minRun-1 consecutive equalities in at most four word operations.
+	x = ^(x | x>>1 | x>>2 | x>>3) & 0x0111111111111111
+	x &= x >> f.shifts[0]
+	x &= x >> f.shifts[1]
+	x &= x >> f.shifts[2]
+	x &= x >> f.shifts[3]
+	return x != 0
 }

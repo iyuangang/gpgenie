@@ -4,7 +4,6 @@ package vanity
 
 import (
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"math/bits"
@@ -12,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 	"unsafe"
 
 	"github.com/ProtonMail/go-crypto/openpgp/packet"
@@ -33,6 +33,7 @@ const (
 	clMemReadWrite         = uintptr(1 << 0)
 	clMemReadOnly          = uintptr(1 << 2)
 	clProgramBuildLog      = uint32(0x1183)
+	clKernelWorkGroupSize  = uint32(0x11B0)
 	clTrue                 = uintptr(1)
 	openCLHitCapacity      = 4096
 	openCLResultWords      = 2 + openCLHitCapacity
@@ -51,6 +52,7 @@ type openCLAPI struct {
 	buildProgram            *windows.LazyProc
 	getProgramBuildInfo     *windows.LazyProc
 	createKernel            *windows.LazyProc
+	getKernelWorkGroupInfo  *windows.LazyProc
 	createBuffer            *windows.LazyProc
 	setKernelArg            *windows.LazyProc
 	enqueueWriteBuffer      *windows.LazyProc
@@ -85,6 +87,7 @@ func loadOpenCL() (*openCLAPI, error) {
 			buildProgram:            dll.NewProc("clBuildProgram"),
 			getProgramBuildInfo:     dll.NewProc("clGetProgramBuildInfo"),
 			createKernel:            dll.NewProc("clCreateKernel"),
+			getKernelWorkGroupInfo:  dll.NewProc("clGetKernelWorkGroupInfo"),
 			createBuffer:            dll.NewProc("clCreateBuffer"),
 			setKernelArg:            dll.NewProc("clSetKernelArg"),
 			enqueueWriteBuffer:      dll.NewProc("clEnqueueWriteBuffer"),
@@ -108,7 +111,8 @@ func loadOpenCL() (*openCLAPI, error) {
 			"clCreateProgramWithSource": api.createProgramWithSource, "clBuildProgram": api.buildProgram,
 			"clGetProgramBuildInfo": api.getProgramBuildInfo, "clCreateKernel": api.createKernel,
 			"clCreateBuffer": api.createBuffer, "clSetKernelArg": api.setKernelArg,
-			"clEnqueueWriteBuffer": api.enqueueWriteBuffer, "clEnqueueNDRangeKernel": api.enqueueNDRangeKernel,
+			"clGetKernelWorkGroupInfo": api.getKernelWorkGroupInfo,
+			"clEnqueueWriteBuffer":     api.enqueueWriteBuffer, "clEnqueueNDRangeKernel": api.enqueueNDRangeKernel,
 			"clEnqueueReadBuffer": api.enqueueReadBuffer, "clFinish": api.finish,
 			"clReleaseMemObject": api.releaseMemObject, "clReleaseKernel": api.releaseKernel,
 			"clReleaseProgram": api.releaseProgram, "clReleaseCommandQueue": api.releaseCommandQueue,
@@ -248,6 +252,10 @@ type openCLExecutor struct {
 }
 
 func newOpenCLExecutor(device openCLDeviceRef, keyBatch int) (*openCLExecutor, error) {
+	return newOpenCLExecutorSource(device, keyBatch, openCLVanityKernel)
+}
+
+func newOpenCLExecutorSource(device openCLDeviceRef, keyBatch int, kernelSource string) (*openCLExecutor, error) {
 	api, err := loadOpenCL()
 	if err != nil {
 		return nil, err
@@ -271,7 +279,7 @@ func newOpenCLExecutor(device openCLDeviceRef, keyBatch int) (*openCLExecutor, e
 		return cleanupOnError(fmt.Errorf("clCreateCommandQueue failed with OpenCL error %d", code))
 	}
 
-	source := append([]byte(openCLVanityKernel), 0)
+	source := append([]byte(kernelSource), 0)
 	sourcePointer := slicePointer(source)
 	executor.program, _, _ = api.createProgramWithSource.Call(executor.context, 1, uintptr(unsafe.Pointer(&sourcePointer)), 0, uintptr(unsafe.Pointer(&code)))
 	runtime.KeepAlive(source)
@@ -298,6 +306,15 @@ func newOpenCLExecutor(device openCLDeviceRef, keyBatch int) (*openCLExecutor, e
 		return cleanupOnError(fmt.Errorf("create OpenCL result buffer failed with error %d", code))
 	}
 	executor.localSize = uintptr(256)
+	var kernelMaximum uintptr
+	if err := clCheck("clGetKernelWorkGroupInfo", clCode(api.getKernelWorkGroupInfo,
+		executor.kernel, device.Device, uintptr(clKernelWorkGroupSize), unsafe.Sizeof(kernelMaximum),
+		uintptr(unsafe.Pointer(&kernelMaximum)), 0)); err != nil {
+		return cleanupOnError(err)
+	}
+	if kernelMaximum > 0 && kernelMaximum < executor.localSize {
+		executor.localSize = highestPowerOfTwo(kernelMaximum)
+	}
 	if maximum := uintptr(device.Info.MaxWorkGroupSize); maximum > 0 && maximum < executor.localSize {
 		executor.localSize = highestPowerOfTwo(maximum)
 	}
@@ -379,8 +396,13 @@ func (e *openCLExecutor) run(templateCount, timestampStart, timestampCount, work
 	if workCount == 0 || uint64(workCount) > maxGPUWorkItems {
 		return [openCLResultWords]uint32{}, fmt.Errorf("OpenCL work count must be between 1 and %d", maxGPUWorkItems)
 	}
+	if templateCount == 0 || timestampCount == 0 || uint64(templateCount) > uint64(e.blockSize/64) || uint64(workCount) > uint64(templateCount)*uint64(timestampCount) {
+		return [openCLResultWords]uint32{}, fmt.Errorf("invalid OpenCL dispatch dimensions: templates=%d timestamps=%d work=%d", templateCount, timestampCount, workCount)
+	}
 	result := [openCLResultWords]uint32{uint32(initialBest) << openCLResultIndexBits}
-	code := clCode(e.api.enqueueWriteBuffer, e.queue, e.result, clTrue, 0, uintptr(len(result)*4), uintptr(unsafe.Pointer(&result[0])), 0, 0, 0)
+	// Only the winner/count header needs resetting. Hit slots are overwritten
+	// by the kernel and read only up to the returned count.
+	code := clCode(e.api.enqueueWriteBuffer, e.queue, e.result, clTrue, 0, 8, uintptr(unsafe.Pointer(&result[0])), 0, 0, 0)
 	if err := clCheck("clEnqueueWriteBuffer(result)", code); err != nil {
 		return result, err
 	}
@@ -396,24 +418,39 @@ func (e *openCLExecutor) run(templateCount, timestampStart, timestampCount, work
 		e.setUint32Arg(5, uint32(allowed)),
 		e.setUint32Arg(6, scopeValue),
 		e.setUint32Arg(7, uint32(minRun)),
+		e.setUint32Arg(9, uint32(initialBest)),
 	}
 	if err := errors.Join(args...); err != nil {
 		return result, err
 	}
-	globalSize := [2]uintptr{roundUpUintptr(uintptr(timestampCount), e.localSize), uintptr(templateCount)}
+	// The final budget claim can cover only a small part of the rectangle.
+	// Keep the logical timestamp stride while avoiding entirely inactive rows.
+	activeTemplates := (workCount-1)/timestampCount + 1
+	activeTimestamps := min(timestampCount, workCount)
+	globalSize := [2]uintptr{roundUpUintptr(uintptr(activeTimestamps), e.localSize), uintptr(activeTemplates)}
 	localSize := [2]uintptr{e.localSize, 1}
 	code = clCode(e.api.enqueueNDRangeKernel, e.queue, e.kernel, 2, 0, uintptr(unsafe.Pointer(&globalSize[0])), uintptr(unsafe.Pointer(&localSize[0])), 0, 0, 0)
 	if err := clCheck("clEnqueueNDRangeKernel", code); err != nil {
 		return result, err
 	}
-	code = clCode(e.api.enqueueReadBuffer, e.queue, e.result, clTrue, 0, uintptr(len(result)*4), uintptr(unsafe.Pointer(&result[0])), 0, 0, 0)
+	code = clCode(e.api.enqueueReadBuffer, e.queue, e.result, clTrue, 0, 8, uintptr(unsafe.Pointer(&result[0])), 0, 0, 0)
 	if err := clCheck("clEnqueueReadBuffer(result)", code); err != nil {
 		return result, err
 	}
-	return result, clCheck("clFinish", clCode(e.api.finish, e.queue))
+	if hits := min(result[1], uint32(openCLHitCapacity)); hits > 0 {
+		code = clCode(e.api.enqueueReadBuffer, e.queue, e.result, clTrue, 8, uintptr(hits)*4, uintptr(unsafe.Pointer(&result[2])), 0, 0, 0)
+		if err := clCheck("clEnqueueReadBuffer(hits)", code); err != nil {
+			return result, err
+		}
+	}
+	// A blocking read on this in-order queue already waits for the kernel.
+	return result, nil
 }
 
 func searchOpenCLWorker(ctx context.Context, cfg SearchConfig, device openCLDeviceRef, completed, reserved *atomic.Uint64, bestRun *atomic.Int32, output chan<- Candidate) error {
+	if ctx.Err() != nil {
+		return nil
+	}
 	keyBatch := cfg.GPUKeyBatch
 	if keyBatch == 0 {
 		keyBatch = defaultGPUKeyBatch
@@ -423,6 +460,13 @@ func searchOpenCLWorker(ctx context.Context, cfg SearchConfig, device openCLDevi
 		workItems = defaultGPUWorkItems
 	}
 	workItems = retentionSafeGPUWorkItems(workItems, cfg.MinRun, cfg.Scope)
+	workLimit := workItems
+	if cfg.GPUWorkItems == 0 {
+		// Start small on unknown hardware, then size each device independently
+		// toward 100ms. Compilation time is excluded from the feedback loop.
+		workItems = min(workItems, uint64(1<<20))
+	}
+	keyBatch = min(keyBatch, int(workItems))
 	executor, err := newOpenCLExecutor(device, keyBatch)
 	if err != nil {
 		return err
@@ -430,13 +474,25 @@ func searchOpenCLWorker(ctx context.Context, cfg SearchConfig, device openCLDevi
 	defer executor.Close()
 
 	timestampSpan := uint64(cfg.TimestampEnd) - uint64(cfg.TimestampStart) + 1
+	keys := make([]*packetCandidate, 0, keyBatch)
+	words := make([]uint32, 0, keyBatch*16)
 	for {
 		if ctx.Err() != nil {
 			return nil
 		}
-		keys := make([]*packetCandidate, 0, keyBatch)
-		words := make([]uint32, 0, keyBatch*16)
-		for len(keys) < keyBatch {
+		batchCount := keyBatch
+		if cfg.MaxAttempts > 0 {
+			used := reserved.Load()
+			if used >= cfg.MaxAttempts {
+				return nil
+			}
+			batchCount = int(min(uint64(batchCount), cfg.MaxAttempts-used))
+		}
+		keys, words = keys[:0], words[:0]
+		for len(keys) < batchCount {
+			if ctx.Err() != nil {
+				return nil
+			}
 			privateKey, template, err := generateCandidateKey()
 			if err != nil {
 				return err
@@ -468,9 +524,13 @@ func searchOpenCLWorker(ctx context.Context, cfg SearchConfig, device openCLDevi
 			}
 			baseline := int(bestRun.Load())
 			dispatchStart := cfg.TimestampStart + uint32(cursor)
+			dispatchStarted := time.Now()
 			gpuResult, err := executor.run(uint32(len(keys)), dispatchStart, uint32(timestampCount), uint32(claimed), cfg.AllowedDigits, cfg.Scope, cfg.MinRun, baseline)
 			if err != nil {
 				return err
+			}
+			if cfg.GPUWorkItems == 0 && claimed == requested {
+				workItems = max(uint64(len(keys)), tuneGPUWorkItems(claimed, time.Since(dispatchStarted), workLimit))
 			}
 			completed.Add(claimed)
 			cursor += timestampCount
@@ -478,6 +538,9 @@ func searchOpenCLWorker(ctx context.Context, cfg SearchConfig, device openCLDevi
 			candidateFromScore := func(score uint32) (Candidate, error) {
 				resultRun := int(score >> openCLResultIndexBits)
 				resultIndex := uint64(score & uint32(maxGPUWorkItems))
+				if resultIndex >= claimed || resultRun < 1 || resultRun > 16 {
+					return Candidate{}, fmt.Errorf("OpenCL returned invalid score: index=%d work=%d run=%d", resultIndex, claimed, resultRun)
+				}
 				templateIndex := int(resultIndex / timestampCount)
 				if templateIndex < 0 || templateIndex >= len(keys) {
 					return Candidate{}, fmt.Errorf("OpenCL returned invalid template index %d", templateIndex)
@@ -527,24 +590,23 @@ func searchOpenCLWorker(ctx context.Context, cfg SearchConfig, device openCLDevi
 	}
 }
 
+func tuneGPUWorkItems(previous uint64, elapsed time.Duration, limit uint64) uint64 {
+	if elapsed <= 0 {
+		return min(previous, limit)
+	}
+	const target = 100 * time.Millisecond
+	if elapsed >= target*3/4 && elapsed <= target*5/4 {
+		return min(previous, limit)
+	}
+	next := float64(previous) * float64(target) / float64(elapsed)
+	// Limit growth to 2x per completed dispatch and cap before converting.
+	next = min(next, float64(min(previous*2, limit)))
+	return min(limit, max(uint64(min(4096, limit)), uint64(next)))
+}
+
 type packetCandidate struct {
 	privateKey *packet.PrivateKey
 	template   []byte
-}
-
-func sha1PaddedBlock(template []byte) ([16]uint32, error) {
-	var result [16]uint32
-	if len(template) > 55 {
-		return result, fmt.Errorf("OpenCL SHA-1 fast path requires at most 55 bytes, got %d", len(template))
-	}
-	var block [64]byte
-	copy(block[:], template)
-	block[len(template)] = 0x80
-	binary.BigEndian.PutUint64(block[56:], uint64(len(template))*8)
-	for i := range result {
-		result[i] = binary.BigEndian.Uint32(block[i*4 : i*4+4])
-	}
-	return result, nil
 }
 
 func highestPowerOfTwo(value uintptr) uintptr {
